@@ -66,6 +66,19 @@ final class PostNativeCell: UITableViewCell {
     private var avatarHeightConstraint: NSLayoutConstraint!
     private var flairWidthConstraint: NSLayoutConstraint!
     private var flairHeightConstraint: NSLayoutConstraint!
+    private var avatarLeadingConstraint: NSLayoutConstraint!
+    private var nameLeadingConstraint: NSLayoutConstraint!
+    private var usernameLeadingConstraint: NSLayoutConstraint!
+    private var contentLeadingConstraint: NSLayoutConstraint!
+    private var bottomLeftLeadingConstraint: NSLayoutConstraint!
+
+    private let threadLineView: UIView = {
+        let view = UIView()
+        view.backgroundColor = .separator
+        view.translatesAutoresizingMaskIntoConstraints = false
+        view.isHidden = true
+        return view
+    }()
 
     private let avatarImageView: UIImageView = {
         let iv = UIImageView()
@@ -289,6 +302,7 @@ final class PostNativeCell: UITableViewCell {
 
     private func setupViews() {
         contentView.addSubview(avatarImageView)
+        contentView.addSubview(threadLineView)
         contentView.addSubview(flairImageView)
         contentView.addSubview(nameLabel)
         contentView.addSubview(usernameLabel)
@@ -322,12 +336,22 @@ final class PostNativeCell: UITableViewCell {
         avatarHeightConstraint = avatarImageView.heightAnchor.constraint(equalToConstant: Self.baseAvatarSize)
         flairWidthConstraint = flairImageView.widthAnchor.constraint(equalToConstant: Self.baseFlairSize)
         flairHeightConstraint = flairImageView.heightAnchor.constraint(equalToConstant: Self.baseFlairSize)
+        avatarLeadingConstraint = avatarImageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12)
+        nameLeadingConstraint = nameLabel.leadingAnchor.constraint(equalTo: avatarImageView.trailingAnchor, constant: 8)
+        usernameLeadingConstraint = usernameLabel.leadingAnchor.constraint(equalTo: avatarImageView.trailingAnchor, constant: 8)
+        contentLeadingConstraint = contentStackView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12)
+        bottomLeftLeadingConstraint = bottomLeftStack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16)
 
         NSLayoutConstraint.activate([
             avatarImageView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 12),
-            avatarImageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12),
+            avatarLeadingConstraint,
             avatarWidthConstraint,
             avatarHeightConstraint,
+
+            threadLineView.topAnchor.constraint(equalTo: avatarImageView.bottomAnchor, constant: 4),
+            threadLineView.centerXAnchor.constraint(equalTo: avatarImageView.centerXAnchor),
+            threadLineView.bottomAnchor.constraint(equalTo: separatorLine.topAnchor),
+            threadLineView.widthAnchor.constraint(equalToConstant: 1.0 / UIScreen.main.scale),
 
             flairImageView.bottomAnchor.constraint(equalTo: avatarImageView.bottomAnchor, constant: 2),
             flairImageView.trailingAnchor.constraint(equalTo: avatarImageView.trailingAnchor, constant: 2),
@@ -335,10 +359,10 @@ final class PostNativeCell: UITableViewCell {
             flairHeightConstraint,
 
             nameLabel.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 12),
-            nameLabel.leadingAnchor.constraint(equalTo: avatarImageView.trailingAnchor, constant: 8),
+            nameLeadingConstraint,
 
             usernameLabel.topAnchor.constraint(equalTo: nameLabel.bottomAnchor),
-            usernameLabel.leadingAnchor.constraint(equalTo: avatarImageView.trailingAnchor, constant: 8),
+            usernameLeadingConstraint,
 
             userTitleLabel.lastBaselineAnchor.constraint(equalTo: nameLabel.lastBaselineAnchor),
             userTitleLabel.leadingAnchor.constraint(equalTo: nameLabel.trailingAnchor, constant: 4),
@@ -354,11 +378,11 @@ final class PostNativeCell: UITableViewCell {
             timeLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
 
             contentStackView.topAnchor.constraint(equalTo: avatarImageView.bottomAnchor, constant: 12),
-            contentStackView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12),
+            contentLeadingConstraint,
             contentStackView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -12),
 
             bottomLeftStack.topAnchor.constraint(equalTo: contentStackView.bottomAnchor, constant: 10),
-            bottomLeftStack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
+            bottomLeftLeadingConstraint,
             bottomLeftStack.heightAnchor.constraint(equalToConstant: Self.bottomBarHeight),
 
             moreButton.topAnchor.constraint(equalTo: contentStackView.bottomAnchor, constant: 10),
@@ -444,8 +468,13 @@ final class PostNativeCell: UITableViewCell {
         precomputedBlockHeights: [CGFloat?]? = nil,
         hidesLikeButton: Bool = false,
         isOP: Bool = false,
+        replyIndentLevel: Int = 0,
+        showsThreadLine: Bool = false,
+        nestedRepliesAreCollapsed: Bool = false,
+        usesNestedReplyToggle: Bool = false
     ) {
         let fm = FontManager.shared
+        applyReplyIndent(level: replyIndentLevel, showsThreadLine: showsThreadLine)
         let avatarSize = fm.scaled(Self.baseAvatarSize)
         avatarWidthConstraint.constant = avatarSize
         avatarHeightConstraint.constant = avatarSize
@@ -529,7 +558,16 @@ final class PostNativeCell: UITableViewCell {
         let hasReplies = post.replyCount > 0
         showRepliesButton.isHidden = !hasReplies
         if hasReplies {
-            showRepliesButton.setTitle(String(localized: "post.replies \(post.replyCount)"), for: .normal)
+            if usesNestedReplyToggle {
+                showRepliesButton.setTitle(
+                    nestedRepliesAreCollapsed
+                        ? String(localized: "post.replies.expand \(post.replyCount)")
+                        : String(localized: "post.replies.collapse \(post.replyCount)"),
+                    for: .normal
+                )
+            } else {
+                showRepliesButton.setTitle(String(localized: "post.replies \(post.replyCount)"), for: .normal)
+            }
         }
 
         // Reactions
@@ -654,6 +692,17 @@ final class PostNativeCell: UITableViewCell {
                 avatarImageView.sd_setImage(with: url, context: ImageCacheManager.shared.avatarContext)
             }
         }
+    }
+
+    private func applyReplyIndent(level: Int, showsThreadLine: Bool) {
+        let clamped = max(0, min(level, 8))
+        let offset = CGFloat(clamped) * 28
+        avatarLeadingConstraint.constant = 12 + offset
+        contentLeadingConstraint.constant = 12 + offset
+        bottomLeftLeadingConstraint.constant = 16 + offset
+        nameLeadingConstraint.constant = 8
+        usernameLeadingConstraint.constant = 8
+        threadLineView.isHidden = !showsThreadLine
     }
 
     /// Show the user's chosen reaction emoji as an overlay on top of the
@@ -1074,6 +1123,7 @@ final class PostNativeCell: UITableViewCell {
         replyToLabel.text = nil
         replyToLabel.isHidden = true
         showRepliesButton.isHidden = true
+        showRepliesButton.setTitle(nil, for: .normal)
         avatarImageView.sd_cancelCurrentImageLoad()
         avatarImageView.image = nil
         nameLabel.attributedText = nil

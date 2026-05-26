@@ -243,6 +243,10 @@ final class TopicDetailViewController: ObservableViewController {
     private static let readFlushInterval: TimeInterval = 60
     private static let readFlushDebounce: TimeInterval = 1.5
     private let hidesLikeButton: Bool
+    private var activeReplyLayoutMode = AppSettings.shared.topicReplyLayoutMode
+    private var activeMaxReplyIndentLevel = AppSettings.shared.maxTopicReplyIndentLevel
+    private var replyPostsByNumberCache: [Int: DiscourseTopicDetail.Post]?
+    private var collapsedNestedReplyPostIds: Set<Int> = []
 
     private lazy var tableView: UITableView = {
         let tv = ThemedTableView(frame: .zero, style: .plain)
@@ -277,7 +281,11 @@ final class TopicDetailViewController: ObservableViewController {
                 floorNumber = (self.viewModel.visiblePosts.firstIndex(where: { $0.id == postId }) ?? 0) + 1
             }
             let postLink = "\(self.baseURL)/t/\(self.topicId)/\(post.postNumber)"
-            let config = NativeRenderConfig.default(contentWidth: tableView.bounds.width - 24, baseURL: self.baseURL)
+            let replyIndentLevel = self.replyIndentLevel(for: post)
+            let config = NativeRenderConfig.default(
+                contentWidth: self.contentWidth(for: tableView.bounds.width, replyIndentLevel: replyIndentLevel),
+                baseURL: self.baseURL
+            )
             let isBoostsExpanded = self.viewModel.expandedBoostPostIds.contains(postId)
             let showsSeparator = !isBoostsExpanded
             let cachedViews = self.contentViewCache[postId]
@@ -298,7 +306,11 @@ final class TopicDetailViewController: ObservableViewController {
                 showsSeparator: showsSeparator,
                 precomputedBlockHeights: self.precomputedBlockHeights[postId],
                 hidesLikeButton: self.hidesLikeButton,
-                isOP: isOP
+                isOP: isOP,
+                replyIndentLevel: replyIndentLevel,
+                showsThreadLine: self.activeReplyLayoutMode == .nested && (replyIndentLevel > 0 || post.replyCount > 0),
+                nestedRepliesAreCollapsed: self.collapsedNestedReplyPostIds.contains(postId),
+                usesNestedReplyToggle: self.activeReplyLayoutMode == .nested
             )
             // Cache newly rendered views for future reuse
             if cachedViews == nil {
@@ -529,6 +541,7 @@ final class TopicDetailViewController: ObservableViewController {
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        refreshReplyLayoutIfNeeded()
         resumeReadTracking()
         startReadFlushTimer()
         // Initial "rush" flush: same code path as scroll-stop — debounced by
@@ -711,6 +724,82 @@ final class TopicDetailViewController: ObservableViewController {
         contentViewCache.removeAll()
         precomputedBlockHeights.removeAll()
         precomputedTotalHeights.removeAll()
+        replyPostsByNumberCache = nil
+    }
+
+    private func refreshReplyLayoutIfNeeded() {
+        let mode = AppSettings.shared.topicReplyLayoutMode
+        let maxLevel = AppSettings.shared.maxTopicReplyIndentLevel
+        guard mode != activeReplyLayoutMode || maxLevel != activeMaxReplyIndentLevel else { return }
+        if mode != activeReplyLayoutMode {
+            collapsedNestedReplyPostIds.removeAll()
+        }
+        activeReplyLayoutMode = mode
+        activeMaxReplyIndentLevel = maxLevel
+        invalidateRenderCaches()
+        tableView.reloadData()
+        warmHeightCacheInBackground()
+    }
+
+    private func replyIndentLevel(for post: DiscourseTopicDetail.Post) -> Int {
+        guard activeReplyLayoutMode == .nested,
+              let parentNumber = post.replyToPostNumber,
+              parentNumber > 0
+        else { return 0 }
+        let postsByNumber = replyPostsByNumber()
+        return min(activeMaxReplyIndentLevel, replyIndentLevel(parentPostNumber: parentNumber, postsByNumber: postsByNumber, seen: []))
+    }
+
+    private func replyPostsByNumber() -> [Int: DiscourseTopicDetail.Post] {
+        if let cached = replyPostsByNumberCache, cached.count == viewModel.posts.count {
+            return cached
+        }
+        let built = Dictionary(viewModel.posts.map { ($0.postNumber, $0) }, uniquingKeysWith: { first, _ in first })
+        replyPostsByNumberCache = built
+        return built
+    }
+
+    private func replyIndentLevel(parentPostNumber: Int, postsByNumber: [Int: DiscourseTopicDetail.Post], seen: Set<Int>) -> Int {
+        guard parentPostNumber > 0, !seen.contains(parentPostNumber) else { return 0 }
+        var nextSeen = seen
+        nextSeen.insert(parentPostNumber)
+        guard let parent = postsByNumber[parentPostNumber],
+              let nextParent = parent.replyToPostNumber,
+              nextParent > 0
+        else { return 1 }
+        return min(activeMaxReplyIndentLevel, 1 + replyIndentLevel(parentPostNumber: nextParent, postsByNumber: postsByNumber, seen: nextSeen))
+    }
+
+    private func contentWidth(for tableWidth: CGFloat, replyIndentLevel: Int) -> CGFloat {
+        max(120, tableWidth - 24 - CGFloat(max(0, min(replyIndentLevel, activeMaxReplyIndentLevel))) * 28)
+    }
+
+    private func visiblePostsForSnapshot() -> [DiscourseTopicDetail.Post] {
+        let posts = viewModel.visiblePosts
+        guard activeReplyLayoutMode == .nested, !collapsedNestedReplyPostIds.isEmpty else {
+            return posts
+        }
+        let postsByNumber = replyPostsByNumber()
+        return posts.filter { !isHiddenByCollapsedAncestor($0, postsByNumber: postsByNumber) }
+    }
+
+    private func isHiddenByCollapsedAncestor(_ post: DiscourseTopicDetail.Post, postsByNumber: [Int: DiscourseTopicDetail.Post]) -> Bool {
+        var parentNumber = post.replyToPostNumber
+        var seen = Set<Int>()
+        while let number = parentNumber, !seen.contains(number) {
+            seen.insert(number)
+            guard let parent = postsByNumber[number] else { return false }
+            if collapsedNestedReplyPostIds.contains(parent.id) { return true }
+            parentNumber = parent.replyToPostNumber
+        }
+        return false
+    }
+
+    private func visiblePostIndex(forFloor floor: Int) -> Int? {
+        visiblePostsForSnapshot().firstIndex { post in
+            guard let streamIndex = viewModel.allPostIds.firstIndex(of: post.id) else { return false }
+            return streamIndex == floor - 1
+        }
     }
 
     /// Build the diffable-data-source snapshot from the current view-model
@@ -720,7 +809,7 @@ final class TopicDetailViewController: ObservableViewController {
         snapshot.appendSections([0])
         var seen = Set<Int>()
         var items: [TopicDetailItem] = []
-        for post in viewModel.visiblePosts {
+        for post in visiblePostsForSnapshot() {
             guard viewModel.parsedBlocks[post.id] != nil,
                   seen.insert(post.id).inserted else { continue }
             items.append(.post(post.id))
@@ -746,13 +835,17 @@ final class TopicDetailViewController: ObservableViewController {
             precomputedTotalHeights.removeAll(keepingCapacity: true)
             precomputedWidth = width
         }
-        let config = NativeRenderConfig.default(contentWidth: width - 24, baseURL: baseURL)
         let chrome = PostNativeCell.chromeHeight()
         let stackSpacing = NativeContentRenderer.contentStackSpacing
         for postId in postIds {
             guard precomputedBlockHeights[postId] == nil,
-                  let blocks = viewModel.parsedBlocks[postId]
+                  let blocks = viewModel.parsedBlocks[postId],
+                  let post = viewModel.postsById[postId]
             else { continue }
+            let config = NativeRenderConfig.default(
+                contentWidth: contentWidth(for: width, replyIndentLevel: replyIndentLevel(for: post)),
+                baseURL: baseURL
+            )
             let heights = BlockHeightCalculator.perBlockHeights(annotatedBlocks: blocks, config: config)
             precomputedBlockHeights[postId] = heights
             if heights.allSatisfy({ $0 != nil }) {
@@ -770,13 +863,14 @@ final class TopicDetailViewController: ObservableViewController {
     /// is accurate even when cell heights are still estimates near the
     /// target row.
     private func applyJumpSnapshot(target floor: Int, position: UITableView.ScrollPosition) {
+        _ = revealFloorIfCollapsed(floor)
         let snapshot = buildSnapshot()
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         dataSource.apply(snapshot, animatingDifferences: false)
         CATransaction.commit()
 
-        guard let postIndex = viewModel.visibleRowForFloor(floor),
+        guard let postIndex = visiblePostIndex(forFloor: floor),
               let safeRow = tableRow(forVisiblePostIndex: postIndex)
         else { return }
         let indexPath = IndexPath(row: safeRow, section: 0)
@@ -1309,11 +1403,28 @@ extension TopicDetailViewController: TopicDetailBottomBarDelegate {
         guard rowCount > 0 else { return nil }
         var targetRow = postIndex
         let expanded = viewModel.expandedBoostPostIds
-        let visible = viewModel.visiblePosts
+        let visible = visiblePostsForSnapshot()
         for i in 0..<min(postIndex, visible.count) where expanded.contains(visible[i].id) {
             targetRow += 1
         }
         return min(targetRow, rowCount - 1)
+    }
+
+    @discardableResult
+    private func revealFloorIfCollapsed(_ floor: Int) -> Bool {
+        guard activeReplyLayoutMode == .nested, !collapsedNestedReplyPostIds.isEmpty else { return false }
+        let index = floor - 1
+        guard index >= 0, index < viewModel.allPostIds.count,
+              let target = viewModel.postsById[viewModel.allPostIds[index]]
+        else { return false }
+        let postsByNumber = replyPostsByNumber()
+        let before = collapsedNestedReplyPostIds
+        var parentNumber = target.replyToPostNumber
+        while let number = parentNumber, let parent = postsByNumber[number] {
+            collapsedNestedReplyPostIds.remove(parent.id)
+            parentNumber = parent.replyToPostNumber
+        }
+        return before != collapsedNestedReplyPostIds
     }
 
     /// Resolve the floor of the topmost visible row. UIKit doesn't formally
@@ -1358,18 +1469,22 @@ extension TopicDetailViewController: TopicDetailBottomBarDelegate {
         // Take the .jumping context for the duration of the animation so the
         // intra-animation scroll callbacks don't trigger a stray load-earlier
         // with an anchor captured at some intermediate row.
-        if viewModel.isFloorLoaded(floor),
-           let postIndex = viewModel.visibleRowForFloor(floor),
-           let safeRow = tableRow(forVisiblePostIndex: postIndex)
-        {
-            let token = enterPaginationContext(.jumping)
-            fastPathScrollToken = token
-            tableView.scrollToRow(
-                at: IndexPath(row: safeRow, section: 0),
-                at: .top,
-                animated: true
-            )
-            return
+        if viewModel.isFloorLoaded(floor) {
+            if revealFloorIfCollapsed(floor) {
+                let snapshot = buildSnapshot()
+                dataSource.apply(snapshot, animatingDifferences: false)
+            }
+            if let postIndex = visiblePostIndex(forFloor: floor),
+               let safeRow = tableRow(forVisiblePostIndex: postIndex) {
+                let token = enterPaginationContext(.jumping)
+                fastPathScrollToken = token
+                tableView.scrollToRow(
+                    at: IndexPath(row: safeRow, section: 0),
+                    at: .top,
+                    animated: true
+                )
+                return
+            }
         }
 
         // Slow path: replace the window. The pagination context gates
@@ -1647,10 +1762,15 @@ extension TopicDetailViewController: UITableViewDelegate {
             precomputedWidth = width
         }
         // Snapshot the post -> blocks map for the work queue.
-        var pending: [(Int, [AnnotatedBlock])] = []
+        var pending: [(Int, [AnnotatedBlock], NativeRenderConfig)] = []
         for (postId, blocks) in viewModel.parsedBlocks {
-            if precomputedBlockHeights[postId] == nil {
-                pending.append((postId, blocks))
+            if precomputedBlockHeights[postId] == nil,
+               let post = viewModel.postsById[postId] {
+                let config = NativeRenderConfig.default(
+                    contentWidth: contentWidth(for: width, replyIndentLevel: replyIndentLevel(for: post)),
+                    baseURL: baseURL
+                )
+                pending.append((postId, blocks, config))
             }
         }
         guard !pending.isEmpty else {
@@ -1669,7 +1789,6 @@ extension TopicDetailViewController: UITableViewDelegate {
         heightWarmupInFlightWidth = width
         debugLog("heightWarmup dispatching posts=\(pending.count) width=\(Int(width))")
 
-        let config = NativeRenderConfig.default(contentWidth: width - 24, baseURL: baseURL)
         let chrome = PostNativeCell.chromeHeight()
         let stackSpacing = NativeContentRenderer.contentStackSpacing
 
@@ -1681,7 +1800,7 @@ extension TopicDetailViewController: UITableViewDelegate {
             // outliers in the trace without spamming a per-post line for
             // every post in the topic.
             var perPostMs: [(postId: Int, ms: Double, blocks: Int, nilCount: Int)] = []
-            for (postId, blocks) in pending {
+            for (postId, blocks, config) in pending {
                 let pt0 = CACurrentMediaTime()
                 let (heights, profile) = BlockHeightCalculator.perBlockHeightsProfiled(
                     annotatedBlocks: blocks, config: config
@@ -1950,6 +2069,19 @@ extension TopicDetailViewController: PostCellDelegate {
     }
 
     func postCell(didTapShowRepliesForPostId postId: Int) {
+        if activeReplyLayoutMode == .nested {
+            if collapsedNestedReplyPostIds.contains(postId) {
+                collapsedNestedReplyPostIds.remove(postId)
+            } else {
+                collapsedNestedReplyPostIds.insert(postId)
+            }
+            invalidateRenderCaches()
+            let snapshot = buildSnapshot()
+            dataSource.apply(snapshot, animatingDifferences: true)
+            warmHeightCacheInBackground()
+            return
+        }
+
         let repliesVC = RepliesViewController(
             api: api,
             postId: postId,

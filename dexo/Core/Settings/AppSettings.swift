@@ -169,6 +169,31 @@ final class AppSettings {
         set { defaults.set(newValue.rawValue, forKey: "boostDisplayMode") }
     }
 
+    enum TopicReplyLayoutMode: Int, CaseIterable {
+        case flat = 0
+        case nested = 1
+
+        var title: String {
+            switch self {
+            case .flat: return String(localized: "settings.topic_reply_layout.flat")
+            case .nested: return String(localized: "settings.topic_reply_layout.nested")
+            }
+        }
+    }
+
+    var topicReplyLayoutMode: TopicReplyLayoutMode {
+        get { TopicReplyLayoutMode(rawValue: defaults.integer(forKey: "topicReplyLayoutMode")) ?? .flat }
+        set { defaults.set(newValue.rawValue, forKey: "topicReplyLayoutMode") }
+    }
+
+    var maxTopicReplyIndentLevel: Int {
+        get {
+            let value = defaults.integer(forKey: "maxTopicReplyIndentLevel")
+            return value == 0 ? 4 : min(max(value, 1), 8)
+        }
+        set { defaults.set(min(max(newValue, 1), 8), forKey: "maxTopicReplyIndentLevel") }
+    }
+
     // MARK: - DNS over HTTPS
 
     enum DoHProvider: Int, CaseIterable {

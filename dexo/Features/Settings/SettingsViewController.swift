@@ -83,7 +83,7 @@ extension SettingsViewController: UITableViewDataSource {
 
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
         switch visibleSections[section] {
-        case .general: return 2
+        case .general: return 4
         case .appearance: return 3
         case .storage: return 1
         case .about: return 1
@@ -112,8 +112,12 @@ extension SettingsViewController: UITableViewDataSource {
         case .general:
             if indexPath.row == 0 {
                 return makeAutoOpenCell(tableView, indexPath: indexPath)
-            } else {
+            } else if indexPath.row == 1 {
                 return makeBoostDisplayCell(tableView, indexPath: indexPath)
+            } else if indexPath.row == 2 {
+                return makeTopicReplyLayoutCell(tableView, indexPath: indexPath)
+            } else {
+                return makeMaxReplyIndentCell(tableView, indexPath: indexPath)
             }
         case .appearance:
             if indexPath.row == 0 {
@@ -205,6 +209,24 @@ extension SettingsViewController: UITableViewDataSource {
         return cell
     }
 
+    private func makeTopicReplyLayoutCell(_ tableView: UITableView, indexPath: IndexPath) -> UITableViewCell {
+        let cell = UITableViewCell(style: .value1, reuseIdentifier: nil)
+        applyFonts(to: cell)
+        cell.textLabel?.text = String(localized: "settings.topic_reply_layout")
+        cell.detailTextLabel?.text = settings.topicReplyLayoutMode.title
+        cell.accessoryType = .disclosureIndicator
+        return cell
+    }
+
+    private func makeMaxReplyIndentCell(_ tableView: UITableView, indexPath: IndexPath) -> UITableViewCell {
+        let cell = UITableViewCell(style: .value1, reuseIdentifier: nil)
+        applyFonts(to: cell)
+        cell.textLabel?.text = String(localized: "settings.max_reply_indent")
+        cell.detailTextLabel?.text = "\(settings.maxTopicReplyIndentLevel)"
+        cell.accessoryType = .disclosureIndicator
+        return cell
+    }
+
     private func makeDohToggleCell(_ tableView: UITableView, indexPath: IndexPath) -> UITableViewCell {
         let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
         applyFonts(to: cell)
@@ -275,6 +297,10 @@ extension SettingsViewController: UITableViewDelegate {
         case .general:
             if indexPath.row == 1 {
                 showBoostDisplayPicker(from: sourceView)
+            } else if indexPath.row == 2 {
+                showTopicReplyLayoutPicker(from: sourceView)
+            } else if indexPath.row == 3 {
+                showMaxReplyIndentPicker(from: sourceView)
             }
         case .appearance:
             if indexPath.row == 0 {
@@ -362,6 +388,44 @@ extension SettingsViewController {
                 }
             }
             if mode == settings.boostDisplayMode {
+                action.setValue(true, forKey: "checked")
+            }
+            alert.addAction(action)
+        }
+        alert.addAction(UIAlertAction(title: String(localized: "action.cancel"), style: .cancel))
+        Self.anchorPopover(alert, to: sourceView)
+        present(alert, animated: true)
+    }
+
+    private func showTopicReplyLayoutPicker(from sourceView: UIView?) {
+        let alert = UIAlertController(title: String(localized: "settings.topic_reply_layout"), message: nil, preferredStyle: .actionSheet)
+        for mode in AppSettings.TopicReplyLayoutMode.allCases {
+            let action = UIAlertAction(title: mode.title, style: .default) { [weak self] _ in
+                self?.settings.topicReplyLayoutMode = mode
+                if let idx = self?.visibleSections.firstIndex(of: .general) {
+                    self?.tableView.reloadSections(IndexSet(integer: idx), with: .none)
+                }
+            }
+            if mode == settings.topicReplyLayoutMode {
+                action.setValue(true, forKey: "checked")
+            }
+            alert.addAction(action)
+        }
+        alert.addAction(UIAlertAction(title: String(localized: "action.cancel"), style: .cancel))
+        Self.anchorPopover(alert, to: sourceView)
+        present(alert, animated: true)
+    }
+
+    private func showMaxReplyIndentPicker(from sourceView: UIView?) {
+        let alert = UIAlertController(title: String(localized: "settings.max_reply_indent"), message: nil, preferredStyle: .actionSheet)
+        for level in 1...8 {
+            let action = UIAlertAction(title: "\(level)", style: .default) { [weak self] _ in
+                self?.settings.maxTopicReplyIndentLevel = level
+                if let idx = self?.visibleSections.firstIndex(of: .general) {
+                    self?.tableView.reloadSections(IndexSet(integer: idx), with: .none)
+                }
+            }
+            if level == settings.maxTopicReplyIndentLevel {
                 action.setValue(true, forKey: "checked")
             }
             alert.addAction(action)
