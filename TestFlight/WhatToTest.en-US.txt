@@ -1,6 +1,7 @@
 What to Test
 
-- On linux.do, follow or unfollow a user from their profile, then verify the forum profile center's following list refreshes and supports swipe-to-unfollow.
-- Add a user to the local blocklist. Confirm their topics and posts are hidden, and the forum profile center shows only that forum's blocked users.
-- Open web login and use Debug to confirm request and page errors appear without affecting sign-in.
-- Reopen topics with Boost danmaku and confirm delayed comments from a previous topic never appear in the next one.
+- In standard post mode, scroll down and confirm the three-button bottom bar contracts with momentum into a centered Scroll to Top button. Scroll up and confirm the full bar returns smoothly.
+- Tap the compact Scroll to Top button and confirm the list stops at the true content top and expands the full bar. Taking over with a drag during the return should cancel it immediately.
+- On iOS 26, check the Liquid Glass merging effect as the bottom-bar buttons approach each other. Also verify tree mode, light and dark appearances, and Reduce Motion behavior.
+- Like a post or topic and confirm its image flies toward the left-side target, bursts into fragments on impact, and disappears without lingering views or flashing.
+- Scroll down the home list and tap the Home tab again. Confirm the first tap returns to the top and the second tap refreshes the list.

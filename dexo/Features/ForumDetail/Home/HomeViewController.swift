@@ -151,6 +151,11 @@ final class HomeViewController: ObservableViewController {
         return rc
     }()
 
+    /// A programmatic scroll-to-top can finish a few points away from UIKit's
+    /// latest adjusted top inset while the iOS 26 tab bar expands. Remembering
+    /// the first tap makes the second tap's refresh behavior deterministic.
+    private var shouldRefreshOnNextHomeTabTap = false
+
     init(api: DiscourseAPI, authGate: AuthGating? = nil) {
         self.api = api
         self.viewModel = HomeViewModel(api: api)
@@ -264,6 +269,11 @@ final class HomeViewController: ObservableViewController {
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         reloadLocalReadState()
+    }
+
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        shouldRefreshOnNextHomeTabTap = false
     }
 
     private func reloadLocalReadState() {
@@ -460,13 +470,23 @@ final class HomeViewController: ObservableViewController {
 
     /// Called when the home tab is re-tapped. Scrolls to top if not already there, otherwise refreshes.
     func scrollToTopOrRefresh() {
+        guard !refreshControl.isRefreshing else { return }
+
         let topOffset = -tableView.adjustedContentInset.top
-        if tableView.contentOffset.y <= topOffset + 1 {
+        let isAtTop = tableView.contentOffset.y <= topOffset + 1
+        if isAtTop || shouldRefreshOnNextHomeTabTap {
+            shouldRefreshOnNextHomeTabTap = false
+
+            // Correct any small offset left by the tab bar expansion before
+            // revealing the refresh control.
+            tableView.setContentOffset(CGPoint(x: 0, y: topOffset), animated: false)
+
             // Already at top — trigger refresh
             refreshControl.beginRefreshing()
             tableView.setContentOffset(CGPoint(x: 0, y: topOffset - refreshControl.frame.height), animated: true)
             pullToRefresh()
         } else {
+            shouldRefreshOnNextHomeTabTap = true
             tableView.setContentOffset(CGPoint(x: 0, y: topOffset), animated: true)
         }
     }
@@ -585,6 +605,10 @@ final class HomeViewController: ObservableViewController {
 }
 
 extension HomeViewController: UITableViewDelegate {
+    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        shouldRefreshOnNextHomeTabTap = false
+    }
+
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
         guard let topicId = dataSource.itemIdentifier(for: indexPath) else { return }

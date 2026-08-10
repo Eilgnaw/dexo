@@ -89,6 +89,9 @@ final class VirtualizedTopicDetailViewController: ObservableViewController, UIGe
     private var isLoadingPage = false
     private var loadEarlierArmed = true
     private var lastScrollOffset: CGFloat = 0
+    private var bottomBarScrollState = TopicDetailBottomBarScrollState()
+    private var lastBottomBarScrollOffset: CGFloat?
+    private var isReturningToTop = false
     private var visibleItemCountsByPost: [Int: Int] = [:]
     private var imagePrefetchTokens: [VirtualTopicItem: SDWebImagePrefetchToken] = [:]
     private var jumpScrubber: JumpScrubberOverlay?
@@ -528,6 +531,7 @@ final class VirtualizedTopicDetailViewController: ObservableViewController, UIGe
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         updateEnvironmentIfNeeded()
+        updateBottomBarForScroll(collectionView)
         if !floatingReplyButton.isHidden, view.bounds.width > 0 {
             if floatingReplyButtonPositioned {
                 floatingReplyButton.reclampToParent()
@@ -552,6 +556,71 @@ final class VirtualizedTopicDetailViewController: ObservableViewController, UIGe
         collectionView.backgroundColor = color
         topLoadingBar.backgroundColor = color.withAlphaComponent(0.92)
         jumpOverlay.backgroundColor = color.withAlphaComponent(0.88)
+    }
+
+    private func bottomBarScrollBounds(for scrollView: UIScrollView) -> (minimum: CGFloat, maximum: CGFloat) {
+        let minimum = -scrollView.adjustedContentInset.top
+        let maximum = max(
+            minimum,
+            scrollView.contentSize.height - scrollView.bounds.height + scrollView.adjustedContentInset.bottom
+        )
+        return (minimum, maximum)
+    }
+
+    private func boundedBottomBarOffset(for scrollView: UIScrollView) -> CGFloat {
+        let bounds = bottomBarScrollBounds(for: scrollView)
+        return min(max(scrollView.contentOffset.y, bounds.minimum), bounds.maximum)
+    }
+
+    private func updateBottomBarForScroll(_ scrollView: UIScrollView) {
+        guard !viewModel.isTreeMode else { return }
+
+        let bounds = bottomBarScrollBounds(for: scrollView)
+        let rawOffset = scrollView.contentOffset.y
+        let boundedOffset = min(max(rawOffset, bounds.minimum), bounds.maximum)
+        let previousOffset = lastBottomBarScrollOffset ?? boundedOffset
+        lastBottomBarScrollOffset = boundedOffset
+
+        let isUserDriven = !isReturningToTop
+            && (scrollView.isTracking || scrollView.isDragging || scrollView.isDecelerating)
+        let mode = bottomBarScrollState.update(
+            delta: boundedOffset - previousOffset,
+            distanceFromTop: boundedOffset - bounds.minimum,
+            isUserDriven: isUserDriven,
+            isWithinScrollBounds: rawOffset >= bounds.minimum && rawOffset <= bounds.maximum,
+            isContentScrollable: bounds.maximum - bounds.minimum > 1
+        )
+        if bottomBar.displayMode != mode {
+            bottomBar.setDisplayMode(mode, animated: true)
+        }
+    }
+
+    private func finishReturningToTop() {
+        guard isReturningToTop else { return }
+        isReturningToTop = false
+        bottomBarScrollState.forceExpanded()
+        lastBottomBarScrollOffset = boundedBottomBarOffset(for: collectionView)
+        bottomBar.setDisplayMode(.expanded, animated: true)
+    }
+
+    private func scrollToTopicTop() {
+        let targetY = -collectionView.adjustedContentInset.top
+        guard abs(collectionView.contentOffset.y - targetY) > 1 else {
+            bottomBarScrollState.forceExpanded()
+            lastBottomBarScrollOffset = targetY
+            bottomBar.setDisplayMode(.expanded, animated: true)
+            return
+        }
+
+        isReturningToTop = true
+        bottomBarScrollState.beginGesture()
+        lastBottomBarScrollOffset = boundedBottomBarOffset(for: collectionView)
+        let animated = !UIAccessibility.isReduceMotionEnabled
+        collectionView.setContentOffset(
+            CGPoint(x: collectionView.contentOffset.x, y: targetY),
+            animated: animated
+        )
+        if !animated { finishReturningToTop() }
     }
 
     private func initialLoad() async {
@@ -1355,6 +1424,10 @@ final class VirtualizedTopicDetailViewController: ObservableViewController, UIGe
     private func updateTreeModeControls() {
         navigationItem.rightBarButtonItem = treeModeBarButtonItem()
         let isTreeMode = viewModel.isTreeMode
+        isReturningToTop = false
+        bottomBarScrollState.forceExpanded()
+        lastBottomBarScrollOffset = nil
+        bottomBar.setDisplayMode(.expanded, animated: false)
         bottomBar.hidesFloorControls = isTreeMode
         bottomBar.isHidden = isTreeMode
         floatingReplyButton.isHidden = !isTreeMode
@@ -1561,6 +1634,9 @@ extension VirtualizedTopicDetailViewController: UICollectionViewDelegate, UIColl
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
         loadEarlierArmed = true
         lastScrollOffset = scrollView.contentOffset.y
+        isReturningToTop = false
+        bottomBarScrollState.beginGesture()
+        lastBottomBarScrollOffset = boundedBottomBarOffset(for: scrollView)
         cancelPendingReadFlush()
     }
 
@@ -1585,6 +1661,7 @@ extension VirtualizedTopicDetailViewController: UICollectionViewDelegate, UIColl
     }
 
     func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
+        finishReturningToTop()
         if flushPendingLoadEarlierIfReady() {
             scheduleDebouncedReadFlush()
             return
@@ -1597,6 +1674,7 @@ extension VirtualizedTopicDetailViewController: UICollectionViewDelegate, UIColl
         let currentOffset = scrollView.contentOffset.y
         let isMovingTowardEarlierPosts = currentOffset < lastScrollOffset
         lastScrollOffset = currentOffset
+        updateBottomBarForScroll(scrollView)
         if let titlePath = dataSource.indexPath(for: .title(topicId)),
            let attributes = collectionView.layoutAttributesForItem(at: titlePath)
         {
@@ -1787,6 +1865,11 @@ extension VirtualizedTopicDetailViewController: TopicDetailBottomBarDelegate {
     func bottomBarDidTapReply() {
         requireAuthentication { [weak self] in self?.presentReplyComposer(for: nil) }
     }
+
+    func bottomBarDidTapScrollToTop() {
+        scrollToTopicTop()
+    }
+
     func bottomBarDidBeginScrubFromJump(at locationInWindow: CGPoint, buttonFrame: CGRect) {
         let total = viewModel.totalFloors
         guard total > 1, jumpScrubber == nil else { return }

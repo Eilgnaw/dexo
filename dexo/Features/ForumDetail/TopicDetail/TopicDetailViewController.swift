@@ -1716,6 +1716,13 @@ extension LegacyTopicDetailViewController: TopicDetailBottomBarDelegate {
         present(sheet, animated: true)
     }
 
+    func bottomBarDidTapScrollToTop() {
+        tableView.setContentOffset(
+            CGPoint(x: tableView.contentOffset.x, y: -tableView.adjustedContentInset.top),
+            animated: !UIAccessibility.isReduceMotionEnabled
+        )
+    }
+
     /// Convert a `visiblePosts` index into the table view's row index, taking
     /// into account that each preceding post with an **expanded** boost row —
     /// or a trailing tree-mode "view more replies" row — adds one extra row to
