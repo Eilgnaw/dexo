@@ -189,6 +189,7 @@
       }
     },
     "push.new_topic.fallback.body" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
