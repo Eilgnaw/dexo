@@ -31,4 +31,39 @@ final class AuthenticationFailureDetectionTests: XCTestCase {
 
         XCTAssertFalse(isDiscourseAuthenticationFailure(statusCode: 403, data: data))
     }
+
+    func testBasicInfoProbeDoesNotAttachStoredAuthentication() throws {
+        let requestURL = try XCTUnwrap(URL(string: "https://linux.do/site/basic-info.json"))
+
+        XCTAssertFalse(
+            shouldAttachStoredForumAuthentication(
+                to: requestURL,
+                baseURL: "https://linux.do"
+            )
+        )
+    }
+
+    func testBasicInfoProbeSupportsForumSubpaths() throws {
+        let requestURL = try XCTUnwrap(
+            URL(string: "https://example.com/community/site/basic-info.json")
+        )
+
+        XCTAssertFalse(
+            shouldAttachStoredForumAuthentication(
+                to: requestURL,
+                baseURL: "https://example.com/community"
+            )
+        )
+    }
+
+    func testOtherForumRequestsStillAttachStoredAuthentication() throws {
+        let requestURL = try XCTUnwrap(URL(string: "https://linux.do/latest.json"))
+
+        XCTAssertTrue(
+            shouldAttachStoredForumAuthentication(
+                to: requestURL,
+                baseURL: "https://linux.do"
+            )
+        )
+    }
 }

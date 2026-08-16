@@ -1293,6 +1293,16 @@ func isCloudflareChallengeResponse(_ data: Data?) -> Bool {
 
 // MARK: - Auth Interceptor
 
+/// The basic-info endpoint is used to discover a forum before it has been
+/// added. It must not inherit credentials left in Keychain for the same URL:
+/// a revoked User API Key turns this otherwise-public request into a 403.
+func shouldAttachStoredForumAuthentication(to requestURL: URL, baseURL: String) -> Bool {
+    guard let basicInfoURL = URL(string: baseURL + DiscourseRouter.basicInfo.path) else {
+        return true
+    }
+    return requestURL != basicInfoURL
+}
+
 private final class DiscourseAuthInterceptor: RequestInterceptor {
     private let baseURL: String
     private nonisolated(unsafe) var csrfToken: String?
@@ -1330,7 +1340,20 @@ private final class DiscourseAuthInterceptor: RequestInterceptor {
         }
 
         var request = urlRequest
-        if let userApiKey = KeychainHelper.getUserApiKey(for: baseURL) {
+        let shouldAttachStoredAuthentication = shouldAttachStoredForumAuthentication(
+            to: requestURL,
+            baseURL: baseURL
+        )
+        if !shouldAttachStoredAuthentication {
+            // Also strip an explicitly supplied key so every basic-info probe
+            // remains anonymous. Challenge cookies and their matching
+            // User-Agent, when requested by fetchBasicInfo, are preserved.
+            request.setValue(nil, forHTTPHeaderField: "User-Api-Key")
+        }
+
+        if shouldAttachStoredAuthentication,
+           let userApiKey = KeychainHelper.getUserApiKey(for: baseURL)
+        {
             if userApiKey == AuthManager.webAuthSentinel {
                 if let url = request.url {
                     let header = WebCookieStore.shared.cookieHeader(for: url)
