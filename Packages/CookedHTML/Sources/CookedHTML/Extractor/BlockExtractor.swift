@@ -493,21 +493,80 @@ enum BlockExtractor {
     /// 1. Paragraphs made up entirely of whitespace-only text/styled-text nodes.
     /// 2. Paragraphs containing only `.lineBreak`s (e.g. from `<p><br></p>` or
     ///    chains of `<br>` between real content — common in quote excerpts).
-    /// 3. Leading/trailing `.lineBreak`s that would render as empty lines above or
-    ///    below the real text. Interior line breaks are preserved since they
-    ///    represent intentional soft breaks within a single paragraph.
+    /// 3. Leading/trailing whitespace and `.lineBreak`s that would render as empty
+    ///    space around the real text. Interior whitespace and line breaks are
+    ///    preserved since they separate inline nodes and intentional soft breaks.
     private static func trimBlock(_ block: ContentBlock) -> ContentBlock? {
         switch block {
         case .paragraph(let inlines):
-            var trimmed = inlines.filter { node in
-                switch node {
-                case .text(let t): return !t.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                case .styledText(let t, _): return !t.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                default: return true
+            var trimmed = inlines
+
+            trimLeading: while let first = trimmed.first {
+                switch first {
+                case .lineBreak:
+                    trimmed.removeFirst()
+                case .text(let text):
+                    let value = text.replacingOccurrences(
+                        of: "^[\\s]+",
+                        with: "",
+                        options: .regularExpression
+                    )
+                    if value.isEmpty {
+                        trimmed.removeFirst()
+                    } else {
+                        trimmed[0] = .text(value)
+                        break trimLeading
+                    }
+                case .styledText(let text, let style):
+                    let value = text.replacingOccurrences(
+                        of: "^[\\s]+",
+                        with: "",
+                        options: .regularExpression
+                    )
+                    if value.isEmpty {
+                        trimmed.removeFirst()
+                    } else {
+                        trimmed[0] = .styledText(value, style)
+                        break trimLeading
+                    }
+                default:
+                    break trimLeading
                 }
             }
-            while case .lineBreak = trimmed.first { trimmed.removeFirst() }
-            while case .lineBreak = trimmed.last { trimmed.removeLast() }
+
+            trimTrailing: while let last = trimmed.last {
+                switch last {
+                case .lineBreak:
+                    trimmed.removeLast()
+                case .text(let text):
+                    let value = text.replacingOccurrences(
+                        of: "[\\s]+$",
+                        with: "",
+                        options: .regularExpression
+                    )
+                    if value.isEmpty {
+                        trimmed.removeLast()
+                    } else {
+                        trimmed[trimmed.count - 1] = .text(value)
+                        break trimTrailing
+                    }
+                case .styledText(let text, let style):
+                    let value = text.replacingOccurrences(
+                        of: "[\\s]+$",
+                        with: "",
+                        options: .regularExpression
+                    )
+                    if value.isEmpty {
+                        trimmed.removeLast()
+                    } else {
+                        trimmed[trimmed.count - 1] = .styledText(value, style)
+                        break trimTrailing
+                    }
+                default:
+                    break trimTrailing
+                }
+            }
+
             return trimmed.isEmpty ? nil : .paragraph(trimmed)
         case .list(_, let items):
             return items.isEmpty ? nil : block

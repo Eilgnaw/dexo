@@ -1,7 +1,7 @@
 What to Test
 
-- In standard post mode, scroll down and confirm the three-button bottom bar contracts with momentum into a centered Scroll to Top button. Scroll up and confirm the full bar returns smoothly.
-- Tap the compact Scroll to Top button and confirm the list stops at the true content top and expands the full bar. Taking over with a drag during the return should cancel it immediately.
-- On iOS 26, check the Liquid Glass merging effect as the bottom-bar buttons approach each other. Also verify tree mode, light and dark appearances, and Reduce Motion behavior.
-- Like a post or topic and confirm its image flies toward the left-side target, bursts into fragments on impact, and disappears without lingering views or flashing.
-- Scroll down the home list and tap the Home tab again. Confirm the first tap returns to the top and the second tap refreshes the list.
+- Sign in to a forum account that has not enabled push notifications. Confirm the original action (such as liking or replying) continues first, then the push prompt appears when the interface is free.
+- Tap Enable and confirm the blocking “Enabling push notifications…” indicator appears immediately, disappears after registration, and Push Notifications settings show the account as enabled.
+- Tap No Thanks on a fresh login and confirm no subscription is created and the prompt does not reappear during that login. It should appear again after a later successful login.
+- Confirm accounts with an active push subscription are not prompted again, while failed or pending subscriptions can be retried.
+- In post content, confirm adjacent inline code separated by source whitespace remains visually separated, for example: 发布<code>主题</code> <code>帖子</code>.

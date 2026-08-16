@@ -14,7 +14,66 @@ final class ForumContainerViewController: BaseViewController, AuthGating {
     private let authManager = AuthManager.shared
     private var notificationPoller: NotificationPoller?
     private var hasPendingReadTimingsAutoDisabledAlert = false
+    private var hasPendingPostLoginPushPrompt = false
+    private var pendingPushRegistrationError: Error?
+    private var isRegisteringPush = false
     private var pendingPushDestination: PendingPushDestination?
+
+    private let pushRegistrationLoadingIndicator: UIActivityIndicatorView = {
+        let indicator = UIActivityIndicatorView(style: .medium)
+        indicator.translatesAutoresizingMaskIntoConstraints = false
+        indicator.hidesWhenStopped = true
+        return indicator
+    }()
+
+    private let pushRegistrationLoadingLabel: UILabel = {
+        let label = UILabel()
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.font = .preferredFont(forTextStyle: .body)
+        label.adjustsFontForContentSizeCategory = true
+        label.numberOfLines = 0
+        label.textAlignment = .center
+        label.accessibilityTraits = .updatesFrequently
+        return label
+    }()
+
+    private let pushRegistrationLoadingCard: UIView = {
+        let view = UIView()
+        view.translatesAutoresizingMaskIntoConstraints = false
+        view.layer.cornerRadius = 14
+        return view
+    }()
+
+    private lazy var pushRegistrationLoadingOverlay: UIView = {
+        let overlay = UIView()
+        overlay.translatesAutoresizingMaskIntoConstraints = false
+        overlay.isHidden = true
+        overlay.accessibilityViewIsModal = true
+        overlay.accessibilityIdentifier = "push.registration.loading"
+
+        let stack = UIStackView(arrangedSubviews: [
+            pushRegistrationLoadingIndicator,
+            pushRegistrationLoadingLabel,
+        ])
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.axis = .vertical
+        stack.alignment = .center
+        stack.spacing = 12
+
+        pushRegistrationLoadingCard.addSubview(stack)
+        overlay.addSubview(pushRegistrationLoadingCard)
+        NSLayoutConstraint.activate([
+            pushRegistrationLoadingCard.centerXAnchor.constraint(equalTo: overlay.centerXAnchor),
+            pushRegistrationLoadingCard.centerYAnchor.constraint(equalTo: overlay.centerYAnchor),
+            pushRegistrationLoadingCard.leadingAnchor.constraint(greaterThanOrEqualTo: overlay.leadingAnchor, constant: 32),
+            pushRegistrationLoadingCard.trailingAnchor.constraint(lessThanOrEqualTo: overlay.trailingAnchor, constant: -32),
+            stack.topAnchor.constraint(equalTo: pushRegistrationLoadingCard.topAnchor, constant: 24),
+            stack.leadingAnchor.constraint(equalTo: pushRegistrationLoadingCard.leadingAnchor, constant: 24),
+            stack.trailingAnchor.constraint(equalTo: pushRegistrationLoadingCard.trailingAnchor, constant: -24),
+            stack.bottomAnchor.constraint(equalTo: pushRegistrationLoadingCard.bottomAnchor, constant: -24),
+        ])
+        return overlay
+    }()
 
     init(forum: ForumInstance) {
         self.forum = forum
@@ -96,6 +155,7 @@ final class ForumContainerViewController: BaseViewController, AuthGating {
         authManager.restoreAuthState(for: forum)
 
         setupTabBar()
+        setupPushRegistrationLoadingOverlay()
         configureNavItems()
         startObservingAuth()
         startNotificationPoller()
@@ -113,7 +173,7 @@ final class ForumContainerViewController: BaseViewController, AuthGating {
         )
         NotificationCenter.default.addObserver(
             self,
-            selector: #selector(presentPendingReadTimingsAlertIfPossible),
+            selector: #selector(presentPendingAlertsIfPossible),
             name: UIApplication.didBecomeActiveNotification,
             object: nil
         )
@@ -140,25 +200,148 @@ final class ForumContainerViewController: BaseViewController, AuthGating {
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         openPendingPushDestinationIfPossible()
+        presentPendingAlertsIfPossible()
     }
 
     @objc private func readTimingsWereAutoDisabled() {
         hasPendingReadTimingsAutoDisabledAlert = true
-        presentPendingReadTimingsAlertIfPossible()
+        presentPendingAlertsIfPossible()
     }
 
-    @objc private func presentPendingReadTimingsAlertIfPossible() {
-        guard hasPendingReadTimingsAutoDisabledAlert,
-              view.window?.windowScene?.activationState == .foregroundActive,
-              presentedViewController == nil
+    @objc private func presentPendingAlertsIfPossible() {
+        guard viewIfLoaded?.window?.windowScene?.activationState == .foregroundActive,
+              presentedViewController == nil,
+              !isRegisteringPush
         else { return }
+
+        if let error = pendingPushRegistrationError {
+            pendingPushRegistrationError = nil
+            presentPushRegistrationError(error)
+            return
+        }
+
+        if hasPendingReadTimingsAutoDisabledAlert {
+            presentPendingReadTimingsAlert()
+            return
+        }
+
+        presentPostLoginPushPromptIfNeeded()
+    }
+
+    private func presentPendingReadTimingsAlert() {
         hasPendingReadTimingsAutoDisabledAlert = false
         let alert = UIAlertController(
             title: String(localized: "settings.read_timings.auto_disabled.title"),
             message: String(localized: "settings.read_timings.auto_disabled.message"),
             preferredStyle: .alert
         )
-        alert.addAction(UIAlertAction(title: String(localized: "action.ok"), style: .default))
+        alert.addAction(UIAlertAction(title: String(localized: "action.ok"), style: .default) { [weak self] _ in
+            self?.schedulePendingAlertPresentation()
+        })
+        present(alert, animated: true)
+    }
+
+    private func presentPostLoginPushPromptIfNeeded() {
+        guard hasPendingPostLoginPushPrompt else { return }
+        guard isAuthenticated(),
+              let username = currentUsername() ?? forum.username,
+              !username.isEmpty
+        else {
+            hasPendingPostLoginPushPrompt = false
+            return
+        }
+
+        let coordinator = PushSubscriptionCoordinator(api: api)
+        guard !coordinator.isEnabled(username: username) else {
+            hasPendingPostLoginPushPrompt = false
+            return
+        }
+
+        hasPendingPostLoginPushPrompt = false
+        let alert = UIAlertController(
+            title: String(localized: "push.settings.title"),
+            message: String(localized: "push.login_prompt.message"),
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(
+            title: String(localized: "action.no_thanks"),
+            style: .cancel
+        ) { [weak self] _ in
+            self?.schedulePendingAlertPresentation()
+        })
+        alert.addAction(UIAlertAction(
+            title: String(localized: "action.enable"),
+            style: .default
+        ) { [weak self] _ in
+            self?.enablePushAfterLogin(username: username)
+        })
+        present(alert, animated: true)
+    }
+
+    private func schedulePendingAlertPresentation() {
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(350))
+            self?.presentPendingAlertsIfPossible()
+        }
+    }
+
+    private func setupPushRegistrationLoadingOverlay() {
+        view.addSubview(pushRegistrationLoadingOverlay)
+        NSLayoutConstraint.activate([
+            pushRegistrationLoadingOverlay.topAnchor.constraint(equalTo: view.topAnchor),
+            pushRegistrationLoadingOverlay.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            pushRegistrationLoadingOverlay.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            pushRegistrationLoadingOverlay.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+        ])
+    }
+
+    private func showPushRegistrationLoading() {
+        isRegisteringPush = true
+        let theme = ThemeManager.shared
+        pushRegistrationLoadingOverlay.backgroundColor = theme.backgroundColor.withAlphaComponent(0.88)
+        pushRegistrationLoadingCard.backgroundColor = theme.cardBackgroundColor
+        pushRegistrationLoadingIndicator.color = theme.accentColor
+        pushRegistrationLoadingLabel.text = String(localized: "push.login_prompt.loading")
+        pushRegistrationLoadingIndicator.startAnimating()
+        pushRegistrationLoadingOverlay.isHidden = false
+        view.bringSubviewToFront(pushRegistrationLoadingOverlay)
+        UIAccessibility.post(
+            notification: .screenChanged,
+            argument: pushRegistrationLoadingLabel
+        )
+    }
+
+    private func hidePushRegistrationLoading() {
+        isRegisteringPush = false
+        pushRegistrationLoadingIndicator.stopAnimating()
+        pushRegistrationLoadingOverlay.isHidden = true
+    }
+
+    private func enablePushAfterLogin(username: String) {
+        guard !isRegisteringPush else { return }
+        showPushRegistrationLoading()
+        let coordinator = PushSubscriptionCoordinator(api: api)
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await coordinator.enable(username: username)
+            } catch {
+                pendingPushRegistrationError = error
+            }
+            hidePushRegistrationLoading()
+            schedulePendingAlertPresentation()
+        }
+    }
+
+    private func presentPushRegistrationError(_ error: Error) {
+        let alert = UIAlertController(
+            title: String(localized: "push.error.title"),
+            message: error.localizedDescription,
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: String(localized: "action.ok"), style: .default) { [weak self] _ in
+            self?.schedulePendingAlertPresentation()
+        })
         present(alert, animated: true)
     }
 
@@ -340,12 +523,7 @@ final class ForumContainerViewController: BaseViewController, AuthGating {
         Task {
             do {
                 try await authManager.login(forum: forum, presentationAnchor: view.window!)
-                // Refresh forum from DB to get updated username
-                if let forums = try? DatabaseManager.shared.fetchAllForums(),
-                   let updated = forums.first(where: { $0.id == forum.id })
-                {
-                    forum = updated
-                }
+                completeSuccessfulLogin()
             } catch AuthError.cancelled {
                 // The user intentionally closed the system auth sheet.
             } catch {
@@ -370,13 +548,32 @@ final class ForumContainerViewController: BaseViewController, AuthGating {
     }
 
     private func finishLogout() {
+        hasPendingPostLoginPushPrompt = false
+        pendingPushRegistrationError = nil
         authManager.logout(forum: forum)
-        // Refresh forum from DB
+        refreshForumFromDatabase()
+    }
+
+    private func refreshForumFromDatabase() {
         if let forums = try? DatabaseManager.shared.fetchAllForums(),
            let updated = forums.first(where: { $0.id == forum.id })
         {
             forum = updated
         }
+    }
+
+    private func completeSuccessfulLogin(then action: (() -> Void)? = nil) {
+        refreshForumFromDatabase()
+        action?()
+
+        guard let username = currentUsername() ?? forum.username,
+              !username.isEmpty
+        else { return }
+
+        let coordinator = PushSubscriptionCoordinator(api: api)
+        guard !coordinator.isEnabled(username: username) else { return }
+        hasPendingPostLoginPushPrompt = true
+        schedulePendingAlertPresentation()
     }
 
     // MARK: - AuthGating
@@ -399,12 +596,7 @@ final class ForumContainerViewController: BaseViewController, AuthGating {
             Task {
                 do {
                     try await self.authManager.login(forum: self.forum, presentationAnchor: self.view.window!)
-                    if let forums = try? DatabaseManager.shared.fetchAllForums(),
-                       let updated = forums.first(where: { $0.id == self.forum.id })
-                    {
-                        self.forum = updated
-                    }
-                    action()
+                    self.completeSuccessfulLogin(then: action)
                 } catch AuthError.cancelled {
                     // Keep the auth gate closed without showing an error for
                     // an intentional cancellation.
@@ -429,12 +621,7 @@ final class ForumContainerViewController: BaseViewController, AuthGating {
             Task {
                 do {
                     try await self.authManager.loginViaWeb(forum: self.forum, cookies: cookies, userAgent: userAgent)
-                    if let forums = try? DatabaseManager.shared.fetchAllForums(),
-                       let updated = forums.first(where: { $0.id == self.forum.id })
-                    {
-                        self.forum = updated
-                    }
-                    action()
+                    self.completeSuccessfulLogin(then: action)
                 } catch {
                     self.presentLoginFailure()
                 }

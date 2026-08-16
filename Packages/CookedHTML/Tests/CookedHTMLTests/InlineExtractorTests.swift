@@ -82,6 +82,16 @@ final class InlineExtractorTests: XCTestCase {
         XCTAssertEqual(inlines, [.code("let x = 1")])
     }
 
+    func testWhitespaceBetweenAdjacentInlineCodeIsPreserved() {
+        let inlines = parseInlines("发布<code>主题</code> <code>帖子</code>")
+        XCTAssertEqual(inlines, [
+            .text("发布"),
+            .code("主题"),
+            .text(" "),
+            .code("帖子"),
+        ])
+    }
+
     // MARK: - Inline Image
 
     func testInlineImage() {
