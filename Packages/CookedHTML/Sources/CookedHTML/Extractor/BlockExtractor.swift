@@ -17,31 +17,70 @@ enum BlockExtractor {
 
     /// Extract content blocks from a parent element's children.
     static func extract(from parent: Element, options: ParseOptions) -> [ContentBlock] {
+        extractNodes(parent.getChildNodes(), options: options)
+    }
+
+    /// Extract a mixed sequence of block and inline DOM nodes. Inline siblings are
+    /// accumulated as one run before a paragraph is emitted, so whitespace between
+    /// them survives regardless of which block container they are nested in.
+    private static func extractNodes(_ nodes: [Node], options: ParseOptions) -> [ContentBlock] {
         var blocks: [ContentBlock] = []
-        for child in parent.getChildNodes() {
-            blocks.append(contentsOf: extractNode(child, options: options))
+        var pendingInlines: [InlineNode] = []
+
+        func flushInlineRun() {
+            let inlines = pendingInlines.trimmedWhitespace()
+            pendingInlines.removeAll()
+            guard !inlines.isEmpty else { return }
+            blocks.append(contentsOf: splitLargeImages(from: inlines))
         }
+
+        for node in nodes {
+            if isBlockNode(node) {
+                flushInlineRun()
+                blocks.append(contentsOf: extractNode(node, options: options))
+            } else {
+                pendingInlines.append(contentsOf: InlineExtractor.extractNode(node, options: options))
+            }
+        }
+
+        flushInlineRun()
         return mergeInlineImageBlocks(blocks).compactMap { trimBlock($0) }
     }
 
     /// Extract annotated blocks (block + source HTML) from a parent element's children.
     static func extractAnnotated(from parent: Element, options: ParseOptions) -> [AnnotatedBlock] {
         var raw: [AnnotatedBlock] = []
-        for child in parent.getChildNodes() {
-            let blocks = extractNode(child, options: options).compactMap { trimBlock($0) }
-            guard !blocks.isEmpty else { continue }
-            let sourceHTML: String
-            if let element = child as? Element {
-                sourceHTML = (try? element.outerHtml()) ?? ""
-            } else if let textNode = child as? TextNode {
-                sourceHTML = textNode.getWholeText()
-            } else {
-                sourceHTML = ""
+        var pendingInlines: [InlineNode] = []
+        var pendingSourceHTML = ""
+
+        func flushInlineRun() {
+            let inlines = pendingInlines.trimmedWhitespace()
+            pendingInlines.removeAll()
+            guard !inlines.isEmpty else {
+                pendingSourceHTML = ""
+                return
             }
-            for block in blocks {
-                raw.append(AnnotatedBlock(block: block, sourceHTML: sourceHTML))
+            for block in splitLargeImages(from: inlines).compactMap({ trimBlock($0) }) {
+                raw.append(AnnotatedBlock(block: block, sourceHTML: pendingSourceHTML))
+            }
+            pendingSourceHTML = ""
+        }
+
+        for node in parent.getChildNodes() {
+            let sourceHTML = sourceHTML(for: node)
+            if isBlockNode(node) {
+                flushInlineRun()
+                let blocks = extractNode(node, options: options).compactMap { trimBlock($0) }
+                for block in blocks {
+                    raw.append(AnnotatedBlock(block: block, sourceHTML: sourceHTML))
+                }
+            } else {
+                pendingInlines.append(contentsOf: InlineExtractor.extractNode(node, options: options))
+                pendingSourceHTML += sourceHTML
             }
         }
+        flushInlineRun()
+
         // Apply the same inline-image merging as extract(), preserving sourceHTML by
         // concatenating the HTML of merged siblings.
         guard raw.count > 1 else { return raw }
@@ -86,13 +125,9 @@ enum BlockExtractor {
 
     /// Extract content blocks from a single DOM node.
     static func extractNode(_ node: Node, options: ParseOptions) -> [ContentBlock] {
-        if let textNode = node as? TextNode {
-            let raw = textNode.getWholeText()
-            // Trim leading whitespace/newlines but preserve meaningful trailing spaces
-            // (they serve as word separators when adjacent inline elements are merged).
-            let text = raw.replacingOccurrences(of: "^[\\s]+", with: "", options: .regularExpression)
-            if text.isEmpty { return [] }
-            return [.paragraph([.text(text)])]
+        if node is TextNode {
+            let inlines = InlineExtractor.extractNode(node, options: options).trimmedWhitespace()
+            return inlines.isEmpty ? [] : [.paragraph(inlines)]
         }
 
         guard let element = node as? Element else { return [] }
@@ -309,11 +344,11 @@ enum BlockExtractor {
         }
 
         // Content is everything except the summary element
-        var contentBlocks: [ContentBlock] = []
-        for child in element.getChildNodes() {
-            if let el = child as? Element, el.tagName().lowercased() == "summary" { continue }
-            contentBlocks.append(contentsOf: extractNode(child, options: options))
+        let contentNodes = element.getChildNodes().filter { child in
+            guard let el = child as? Element else { return true }
+            return el.tagName().lowercased() != "summary"
         }
+        let contentBlocks = extractNodes(contentNodes, options: options)
 
         return [.details(summary: summaryInlines, content: contentBlocks)]
     }
@@ -483,8 +518,27 @@ enum BlockExtractor {
         }
     }
 
+    private static func isBlockNode(_ node: Node) -> Bool {
+        guard let element = node as? Element else { return false }
+        return isBlockElement(element)
+    }
+
     private static func isBlockElement(_ element: Element) -> Bool {
-        blockTags.contains(element.tagName().lowercased())
+        let tag = element.tagName().lowercased()
+        // SwiftSoup classifies these as block tags for parser compatibility, but
+        // they participate in normal inline flow in cooked post content.
+        if tag == "s" || tag == "del" || tag == "ins" { return false }
+        return blockTags.contains(tag) || element.isBlock()
+    }
+
+    private static func sourceHTML(for node: Node) -> String {
+        if let element = node as? Element {
+            return (try? element.outerHtml()) ?? ""
+        }
+        if let textNode = node as? TextNode {
+            return textNode.getWholeText()
+        }
+        return ""
     }
 
     /// Trim empty blocks (whitespace-only paragraphs, empty lists).

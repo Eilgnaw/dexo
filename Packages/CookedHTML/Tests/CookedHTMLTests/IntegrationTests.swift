@@ -82,6 +82,21 @@ final class IntegrationTests: XCTestCase {
         }
     }
 
+    func testTableCellKeepsGenuineParagraphBoundaries() {
+        let blocks = CookedHTMLParser.parse(
+            html: "<table><tbody><tr><td><p>First</p><p>Second</p></td></tr></tbody></table>"
+        )
+
+        guard case .table(_, let rows) = blocks.first else {
+            XCTFail("Expected table, got \(blocks)")
+            return
+        }
+        XCTAssertEqual(rows.first?.first, [
+            .paragraph([.text("First")]),
+            .paragraph([.text("Second")]),
+        ])
+    }
+
     // MARK: - md-table wrapper
 
     func testMdTableWrapper() {
@@ -176,6 +191,67 @@ final class IntegrationTests: XCTestCase {
         } else {
             XCTFail("Expected list, got \(blocks[0])")
         }
+    }
+
+    func testUnorderedListPreservesWhitespaceBetweenAdjacentInlineCode() {
+        let html = "<ul><li>发布<code>主题</code> <code>帖子</code></li></ul>"
+        let blocks = CookedHTMLParser.parse(html: html)
+        XCTAssertEqual(CookedHTMLParser.parseAnnotated(html: html).map(\.block), blocks)
+
+        guard case .list(let ordered, let items) = blocks.first,
+              let firstItem = items.first,
+              case .paragraph(let inlines) = firstItem.blocks.first else {
+            XCTFail("Expected an unordered list item paragraph, got \(blocks)")
+            return
+        }
+
+        XCTAssertFalse(ordered)
+        XCTAssertEqual(inlines, [
+            .text("发布"),
+            .code("主题"),
+            .text(" "),
+            .code("帖子"),
+        ])
+    }
+
+    func testMixedFlowContainersPreserveInlineWhitespaceAtAnyNestingDepth() {
+        let expected: [InlineNode] = [.code("A"), .text(" "), .code("B")]
+
+        let topLevelHTML = "<span><em><code>A</code></em> </span><strong><span><code>B</code></span></strong>"
+        let topLevelBlocks = CookedHTMLParser.parse(html: topLevelHTML)
+        XCTAssertEqual(topLevelBlocks, [.paragraph(expected)])
+        XCTAssertEqual(
+            CookedHTMLParser.parseAnnotated(html: topLevelHTML).map(\.block),
+            topLevelBlocks
+        )
+
+        let divBlocks = CookedHTMLParser.parse(
+            html: "<div><span><em><code>A</code></em> </span><strong><span><code>B</code></span></strong></div>"
+        )
+        XCTAssertEqual(divBlocks, [.paragraph(expected)])
+
+        let quoteBlocks = CookedHTMLParser.parse(
+            html: "<blockquote><span><code>A</code> </span><span><code>B</code></span></blockquote>"
+        )
+        XCTAssertEqual(quoteBlocks, [.blockquote(blocks: [.paragraph(expected)])])
+
+        let tableBlocks = CookedHTMLParser.parse(
+            html: "<table><tbody><tr><td><span><code>A</code> </span><code>B</code></td></tr></tbody></table>"
+        )
+        guard case .table(_, let rows) = tableBlocks.first else {
+            XCTFail("Expected table, got \(tableBlocks)")
+            return
+        }
+        XCTAssertEqual(rows.first?.first, [.paragraph(expected)])
+
+        let detailsBlocks = CookedHTMLParser.parse(
+            html: "<details><summary>More</summary><span><code>A</code> </span><code>B</code></details>"
+        )
+        guard case .details(_, let content) = detailsBlocks.first else {
+            XCTFail("Expected details, got \(detailsBlocks)")
+            return
+        }
+        XCTAssertEqual(content, [.paragraph(expected)])
     }
 
     func testOrderedList() {

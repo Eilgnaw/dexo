@@ -1,7 +1,4 @@
 What to Test
 
-- Sign in to a forum account that has not enabled push notifications. Confirm the original action (such as liking or replying) continues first, then the push prompt appears when the interface is free.
-- Tap Enable and confirm the blocking “Enabling push notifications…” indicator appears immediately, disappears after registration, and Push Notifications settings show the account as enabled.
-- Tap No Thanks on a fresh login and confirm no subscription is created and the prompt does not reappear during that login. It should appear again after a later successful login.
-- Confirm accounts with an active push subscription are not prompted again, while failed or pending subscriptions can be retried.
-- In post content, confirm adjacent inline code separated by source whitespace remains visually separated, for example: 发布<code>主题</code> <code>帖子</code>.
+- Sign in without push enabled. Confirm the original action finishes before the prompt; Enable shows loading and activates push, while No Thanks defers the prompt until the next login. Enabled accounts should not be prompted again.
+- Confirm spaces between adjacent inline code remain visible in paragraphs and nested content such as lists, quotes, tables, and details.

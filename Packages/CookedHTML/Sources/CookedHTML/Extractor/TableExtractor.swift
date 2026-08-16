@@ -44,25 +44,10 @@ enum TableExtractor {
         return .table(headers: headers, rows: rows)
     }
 
-    /// Extract blocks from a table cell, merging adjacent paragraphs that result
-    /// from bare inline siblings being split into separate paragraph blocks.
+    /// Extract blocks from a table cell through the shared mixed-flow pipeline.
+    /// Bare inline siblings are already accumulated into one paragraph there,
+    /// while genuine sibling paragraphs remain separate blocks.
     private static func extractCellBlocks(from element: Element, options: ParseOptions) -> [ContentBlock] {
-        let blocks = BlockExtractor.extract(from: element, options: options)
-        return mergeAdjacentParagraphs(blocks)
-    }
-
-    private static func mergeAdjacentParagraphs(_ blocks: [ContentBlock]) -> [ContentBlock] {
-        guard blocks.count > 1 else { return blocks }
-        var result: [ContentBlock] = []
-        for block in blocks {
-            if case .paragraph(let newInlines) = block,
-               let lastIdx = result.indices.last,
-               case .paragraph(let existingInlines) = result[lastIdx] {
-                result[lastIdx] = .paragraph(existingInlines + newInlines)
-            } else {
-                result.append(block)
-            }
-        }
-        return result
+        BlockExtractor.extract(from: element, options: options)
     }
 }
