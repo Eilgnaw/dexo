@@ -54,6 +54,8 @@ let project = Project(
                 .glob(pattern: "dexo/Localizable.xcstrings"),
                 .glob(pattern: "dexo/Core/aliases.json"),
                 .glob(pattern: "dexo/PrivacyInfo.xcprivacy"),
+                .glob(pattern: "ThirdParty/es-module-shims/es-module-shims.js"),
+                .glob(pattern: "ThirdParty/es-module-shims/LICENSE"),
             ]),
             entitlements: .file(path: "dexo/dexo.entitlements"),
             dependencies: [

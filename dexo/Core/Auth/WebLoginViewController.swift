@@ -22,12 +22,21 @@ final class WebLoginViewController: BaseViewController {
         config.preferences.javaScriptCanOpenWindowsAutomatically = true
         diagnostics.register(with: config)
 
-        // Polyfills for iOS < 16.4: CSS.supports override for browser detection,
-        // API polyfills, and static{} block transpilation for Webpack chunks.
+        // Discourse's current frontend requires relative colors and import
+        // maps, which WebKit did not gain until iOS 16.4. The login flow only
+        // needs enough compatibility to boot Discourse and capture `_t`.
         if #unavailable(iOS 16.4) {
             let polyfillSource = Self.polyfillJS
             let script = WKUserScript(source: polyfillSource, injectionTime: .atDocumentStart, forMainFrameOnly: false)
             config.userContentController.addUserScript(script)
+
+            let moduleShimsSource = try Self.loadModuleShimsSource()
+            let moduleShimsScript = WKUserScript(
+                source: Self.moduleShimsBootstrap(source: moduleShimsSource),
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: false
+            )
+            config.userContentController.addUserScript(moduleShimsScript)
         }
 
         // Inject color-scheme hint so the page respects dark mode
@@ -135,7 +144,7 @@ final class WebLoginViewController: BaseViewController {
             webView.uiDelegate = coordinator
             webView.isOpaque = false
             webView.backgroundColor = .systemBackground
-            webView.customUserAgent = Self.mobileSafariUserAgent
+            webView.customUserAgent = WebLoginCompatibility.mobileSafariUserAgent()
             webView.translatesAutoresizingMaskIntoConstraints = false
             self.webView = webView
 
@@ -241,28 +250,32 @@ final class WebLoginViewController: BaseViewController {
         }
     }
 
-    // MARK: - User Agent
-
-    /// Mobile Safari UA that tracks the device's actual iOS version + idiom
-    /// so server-side feature detection (Discourse's browser gate, dark-mode
-    /// hints, etc.) matches what real Safari would report. WebKit/Safari
-    /// build numbers stay pinned — they aren't tied to the iOS version and
-    /// real Safari rarely changes them within a major release.
-    private static var mobileSafariUserAgent: String {
-        let version = UIDevice.current.systemVersion          // e.g. "18.2.1"
-        let parts = version.split(separator: ".")
-        let major = parts.first.map(String.init) ?? "18"
-        let minor = parts.count > 1 ? String(parts[1]) : "0"
-        let osToken = "\(major)_\(minor)"                     // "18_2"
-        let versionToken = "\(major).\(minor)"                // "18.2"
-        let device = UIDevice.current.userInterfaceIdiom == .pad ? "iPad" : "iPhone"
-        return "Mozilla/5.0 (\(device); CPU \(device) OS \(osToken) like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/\(versionToken) Mobile/15E148 Safari/604.1"
-    }
-
     // MARK: - Polyfills (iOS < 16.4)
 
     private static let polyfillJS = """
     (function() {
+        // Fill the inexpensive primitives used by Discourse's browser gate.
+        if (typeof globalThis === 'undefined') window.globalThis = window;
+        if (!String.prototype.replaceAll) {
+            String.prototype.replaceAll = function(search, replacement) {
+                if (search instanceof RegExp) {
+                    if (!search.global) throw new TypeError('replaceAll requires a global RegExp');
+                    return this.replace(search, replacement);
+                }
+                return this.split(String(search)).join(replacement);
+            };
+        }
+        try {
+            new WeakMap().has(0);
+        } catch (_) {
+            var weakMapHas = WeakMap.prototype.has;
+            WeakMap.prototype.has = function(key) {
+                var type = typeof key;
+                if ((type !== 'object' || key === null) && type !== 'function') return false;
+                return weakMapHas.call(this, key);
+            };
+        }
+
         // CSS.supports override — Discourse browser detection
         var orig = CSS.supports.bind(CSS);
         CSS.supports = function() {
@@ -298,6 +311,65 @@ final class WebLoginViewController: BaseViewController {
         }
     })();
     """
+
+    private static func loadModuleShimsSource() throws -> String {
+        guard let url = Bundle.main.url(
+            forResource: "es-module-shims",
+            withExtension: "js"
+        ) else {
+            throw WebLoginSetupError.missingModuleShims
+        }
+        return try String(contentsOf: url, encoding: .utf8)
+    }
+
+    /// Wait for Discourse's first nonce-bearing script before starting the
+    /// import-map shim. This keeps the rewritten modules compatible with the
+    /// forum's strict Content Security Policy while still installing before
+    /// deferred module scripts execute.
+    private static func moduleShimsBootstrap(source: String) -> String {
+        """
+        (function() {
+            var installed = false;
+            var observer;
+
+            function nonceFromPage() {
+                var script = document.querySelector('script[nonce]');
+                return script && (script.nonce || script.getAttribute('nonce'));
+            }
+
+            function install(nonce) {
+                if (installed) return;
+                installed = true;
+                if (observer) observer.disconnect();
+                window.esmsInitOptions = window.esmsInitOptions || {};
+                if (nonce) window.esmsInitOptions.nonce = nonce;
+                \(source)
+            }
+
+            function installIfReady() {
+                var nonce = nonceFromPage();
+                if (nonce || document.querySelector('script[type="importmap"]')) {
+                    install(nonce);
+                    return true;
+                }
+                return false;
+            }
+
+            if (installIfReady()) return;
+
+            observer = new MutationObserver(function() {
+                installIfReady();
+            });
+            observer.observe(document, { childList: true, subtree: true });
+
+            document.addEventListener('readystatechange', function() {
+                if (!installed && document.readyState !== 'loading') {
+                    install(nonceFromPage());
+                }
+            });
+        })();
+        """
+    }
 
     // MARK: - Coordinator
 
@@ -351,5 +423,49 @@ final class WebLoginViewController: BaseViewController {
             }
             return nil
         }
+    }
+}
+
+private enum WebLoginSetupError: Error {
+    case missingModuleShims
+}
+
+enum WebLoginCompatibility {
+    private static let minimumAdvertisedVersion = OperatingSystemVersion(
+        majorVersion: 16,
+        minorVersion: 7,
+        patchVersion: 0
+    )
+
+    /// Advertises at least iOS 16.7 to Discourse on older systems while
+    /// retaining the device idiom and the real version on supported systems.
+    static func mobileSafariUserAgent(
+        operatingSystemVersion: OperatingSystemVersion = ProcessInfo.processInfo.operatingSystemVersion,
+        idiom: UIUserInterfaceIdiom = UIDevice.current.userInterfaceIdiom
+    ) -> String {
+        let advertisedVersion = isOlder(
+            operatingSystemVersion,
+            than: minimumAdvertisedVersion
+        ) ? minimumAdvertisedVersion : operatingSystemVersion
+        let major = advertisedVersion.majorVersion
+        let minor = advertisedVersion.minorVersion
+        let osToken = "\(major)_\(minor)"
+        let versionToken = "\(major).\(minor)"
+        let device = idiom == .pad ? "iPad" : "iPhone"
+        let cpu = idiom == .pad ? "CPU OS" : "CPU iPhone OS"
+        return "Mozilla/5.0 (\(device); \(cpu) \(osToken) like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/\(versionToken) Mobile/15E148 Safari/604.1"
+    }
+
+    private static func isOlder(
+        _ lhs: OperatingSystemVersion,
+        than rhs: OperatingSystemVersion
+    ) -> Bool {
+        if lhs.majorVersion != rhs.majorVersion {
+            return lhs.majorVersion < rhs.majorVersion
+        }
+        if lhs.minorVersion != rhs.minorVersion {
+            return lhs.minorVersion < rhs.minorVersion
+        }
+        return lhs.patchVersion < rhs.patchVersion
     }
 }
