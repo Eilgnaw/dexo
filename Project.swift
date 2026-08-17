@@ -56,6 +56,8 @@ let project = Project(
                 .glob(pattern: "dexo/PrivacyInfo.xcprivacy"),
                 .glob(pattern: "ThirdParty/es-module-shims/es-module-shims.js"),
                 .glob(pattern: "ThirdParty/es-module-shims/LICENSE"),
+                .glob(pattern: "ThirdParty/web-login-polyfills/web-login-polyfills.js"),
+                .glob(pattern: "ThirdParty/web-login-polyfills/LICENSE.core-js"),
             ]),
             entitlements: .file(path: "dexo/dexo.entitlements"),
             dependencies: [

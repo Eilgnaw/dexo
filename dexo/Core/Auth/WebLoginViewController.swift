@@ -26,15 +26,27 @@ final class WebLoginViewController: BaseViewController {
         // maps, which WebKit did not gain until iOS 16.4. The login flow only
         // needs enough compatibility to boot Discourse and capture `_t`.
         if #unavailable(iOS 16.4) {
-            let polyfillSource = Self.polyfillJS
-            let script = WKUserScript(source: polyfillSource, injectionTime: .atDocumentStart, forMainFrameOnly: false)
+            let runtimePolyfillsSource = try Self.loadRuntimePolyfillsSource()
+            let runtimePolyfillsScript = WKUserScript(
+                source: runtimePolyfillsSource,
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: true
+            )
+            config.userContentController.addUserScript(runtimePolyfillsScript)
+
+            let polyfillSource = WebLoginCompatibility.browserGatePolyfillJS
+            let script = WKUserScript(
+                source: polyfillSource,
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: true
+            )
             config.userContentController.addUserScript(script)
 
             let moduleShimsSource = try Self.loadModuleShimsSource()
             let moduleShimsScript = WKUserScript(
                 source: Self.moduleShimsBootstrap(source: moduleShimsSource),
                 injectionTime: .atDocumentStart,
-                forMainFrameOnly: false
+                forMainFrameOnly: true
             )
             config.userContentController.addUserScript(moduleShimsScript)
         }
@@ -252,65 +264,15 @@ final class WebLoginViewController: BaseViewController {
 
     // MARK: - Polyfills (iOS < 16.4)
 
-    private static let polyfillJS = """
-    (function() {
-        // Fill the inexpensive primitives used by Discourse's browser gate.
-        if (typeof globalThis === 'undefined') window.globalThis = window;
-        if (!String.prototype.replaceAll) {
-            String.prototype.replaceAll = function(search, replacement) {
-                if (search instanceof RegExp) {
-                    if (!search.global) throw new TypeError('replaceAll requires a global RegExp');
-                    return this.replace(search, replacement);
-                }
-                return this.split(String(search)).join(replacement);
-            };
+    private static func loadRuntimePolyfillsSource() throws -> String {
+        guard let url = Bundle.main.url(
+            forResource: "web-login-polyfills",
+            withExtension: "js"
+        ) else {
+            throw WebLoginSetupError.missingRuntimePolyfills
         }
-        try {
-            new WeakMap().has(0);
-        } catch (_) {
-            var weakMapHas = WeakMap.prototype.has;
-            WeakMap.prototype.has = function(key) {
-                var type = typeof key;
-                if ((type !== 'object' || key === null) && type !== 'function') return false;
-                return weakMapHas.call(this, key);
-            };
-        }
-
-        // CSS.supports override — Discourse browser detection
-        var orig = CSS.supports.bind(CSS);
-        CSS.supports = function() {
-            var s = arguments.length === 1 ? arguments[0] : arguments[0] + ':' + arguments[1];
-            if (s.indexOf('subgrid') !== -1 || s.indexOf('hsl(from') !== -1) return true;
-            return orig.apply(CSS, arguments);
-        };
-
-        // structuredClone (iOS 15.4+)
-        if (typeof globalThis.structuredClone === 'undefined') {
-            globalThis.structuredClone = function(obj) { return JSON.parse(JSON.stringify(obj)); };
-        }
-        // Object.hasOwn (iOS 15.4+)
-        if (!Object.hasOwn) {
-            Object.hasOwn = function(obj, prop) { return Object.prototype.hasOwnProperty.call(obj, prop); };
-        }
-        // Array.prototype.at (iOS 15.4+)
-        if (!Array.prototype.at) {
-            Array.prototype.at = function(i) { var n = Math.trunc(i) || 0; if (n < 0) n += this.length; if (n < 0 || n >= this.length) return undefined; return this[n]; };
-        }
-        // String.prototype.at (iOS 15.4+)
-        if (!String.prototype.at) {
-            String.prototype.at = function(i) { var n = Math.trunc(i) || 0; if (n < 0) n += this.length; if (n < 0 || n >= this.length) return undefined; return this[n]; };
-        }
-        // crypto.randomUUID (iOS 15.4+)
-        if (typeof crypto !== 'undefined' && !crypto.randomUUID) {
-            crypto.randomUUID = function() {
-                var a = new Uint8Array(16); crypto.getRandomValues(a);
-                a[6] = (a[6] & 0x0f) | 0x40; a[8] = (a[8] & 0x3f) | 0x80;
-                var h = Array.from(a, function(b) { return b.toString(16).padStart(2,'0'); }).join('');
-                return h.slice(0,8)+'-'+h.slice(8,12)+'-'+h.slice(12,16)+'-'+h.slice(16,20)+'-'+h.slice(20);
-            };
-        }
-    })();
-    """
+        return try String(contentsOf: url, encoding: .utf8)
+    }
 
     private static func loadModuleShimsSource() throws -> String {
         guard let url = Bundle.main.url(
@@ -427,10 +389,123 @@ final class WebLoginViewController: BaseViewController {
 }
 
 private enum WebLoginSetupError: Error {
+    case missingRuntimePolyfills
     case missingModuleShims
 }
 
 enum WebLoginCompatibility {
+    static let browserGatePolyfillJS = """
+    (function() {
+        // Work around the WeakMap behavior checked by Discourse's browser gate.
+        try {
+            new WeakMap().has(0);
+        } catch (_) {
+            var weakMapHas = WeakMap.prototype.has;
+            WeakMap.prototype.has = function(key) {
+                var type = typeof key;
+                if ((type !== 'object' || key === null) && type !== 'function') return false;
+                return weakMapHas.call(this, key);
+            };
+        }
+
+        // These DOM APIs are newer than iOS 16 and are outside core-js.
+        if (typeof AbortSignal !== 'undefined' && typeof AbortController !== 'undefined') {
+            if (typeof AbortSignal.timeout !== 'function') {
+                AbortSignal.timeout = function(milliseconds) {
+                    var controller = new AbortController();
+                    setTimeout(function() {
+                        try {
+                            controller.abort(new DOMException('The operation timed out.', 'TimeoutError'));
+                        } catch (_) {
+                            controller.abort();
+                        }
+                    }, milliseconds);
+                    return controller.signal;
+                };
+            }
+
+            if (typeof AbortSignal.any !== 'function') {
+                AbortSignal.any = function(signals) {
+                    var controller = new AbortController();
+                    var candidates = Array.from(signals);
+                    var abort = function(event) {
+                        var source = event && event.target;
+                        try {
+                            controller.abort(source && source.reason);
+                        } catch (_) {
+                            controller.abort();
+                        }
+                        for (var i = 0; i < candidates.length; i++) {
+                            try { candidates[i].removeEventListener('abort', abort); } catch (_) {}
+                        }
+                    };
+
+                    for (var i = 0; i < candidates.length; i++) {
+                        if (candidates[i] && candidates[i].aborted) {
+                            try {
+                                controller.abort(candidates[i].reason);
+                            } catch (_) {
+                                controller.abort();
+                            }
+                            return controller.signal;
+                        }
+                    }
+                    for (var i = 0; i < candidates.length; i++) {
+                        candidates[i].addEventListener('abort', abort, { once: true });
+                    }
+                    return controller.signal;
+                };
+            }
+        }
+
+        // Discourse intentionally blocks engines missing newer layout features.
+        // Dexo only needs the login flow, so bypass the startup gate and restore
+        // the page's real feature detection as soon as Discourse starts.
+        var originalSupports = null;
+        try {
+            if (typeof CSS !== 'undefined' && typeof CSS.supports === 'function') {
+                originalSupports = CSS.supports;
+                CSS.supports = function() {
+                    var query = arguments.length === 1
+                        ? arguments[0]
+                        : arguments[0] + ': ' + arguments[1];
+                    if (typeof query === 'string' &&
+                        (query.indexOf('subgrid') !== -1 || query.indexOf('hsl(from') !== -1)) {
+                        return true;
+                    }
+                    return originalSupports.apply(CSS, arguments);
+                };
+            }
+        } catch (_) {}
+
+        var guardInstalled = false;
+        try {
+            Object.defineProperty(window, 'unsupportedBrowser', {
+                configurable: true,
+                get: function() { return false; },
+                set: function() {}
+            });
+            guardInstalled = true;
+        } catch (_) {}
+
+        var restored = false;
+        function restoreBrowserDetection() {
+            if (restored) return;
+            restored = true;
+            if (originalSupports) CSS.supports = originalSupports;
+            if (guardInstalled) {
+                try {
+                    delete window.unsupportedBrowser;
+                    window.unsupportedBrowser = false;
+                } catch (_) {}
+            }
+        }
+
+        document.addEventListener('discourse-init', restoreBrowserDetection, { once: true });
+        window.addEventListener('load', restoreBrowserDetection, { once: true });
+        setTimeout(restoreBrowserDetection, 15000);
+    })();
+    """
     private static let minimumAdvertisedVersion = OperatingSystemVersion(
         majorVersion: 16,
         minorVersion: 7,

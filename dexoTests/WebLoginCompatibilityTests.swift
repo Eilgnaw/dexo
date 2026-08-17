@@ -1,9 +1,97 @@
+import JavaScriptCore
 import UIKit
+import WebKit
 import XCTest
 
 @testable import dexo
 
 final class WebLoginCompatibilityTests: XCTestCase {
+    func testRuntimePolyfillsAreBundledWithTheApp() throws {
+        let url = try XCTUnwrap(
+            Bundle.main.url(forResource: "web-login-polyfills", withExtension: "js")
+        )
+        let source = try String(contentsOf: url, encoding: .utf8)
+
+        XCTAssertTrue(source.contains("Generated from core-js 3.49.0"))
+        XCTAssertTrue(source.contains("__core-js_shared__"))
+        XCTAssertFalse(source.localizedCaseInsensitiveContains("eruda"))
+    }
+
+    func testRuntimePolyfillsRestoreModernJavaScriptAPIs() async throws {
+        let url = try XCTUnwrap(
+            Bundle.main.url(forResource: "web-login-polyfills", withExtension: "js")
+        )
+        let source = try String(contentsOf: url, encoding: .utf8)
+        let webView = WKWebView(frame: .zero)
+        webView.loadHTMLString("<html><body></body></html>", baseURL: nil)
+
+        var didLoad = false
+        for _ in 0..<100 {
+            if let state = try? await webView.evaluateJavaScript("document.readyState") as? String,
+               state == "complete"
+            {
+                didLoad = true
+                break
+            }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        XCTAssertTrue(didLoad)
+
+        try await webView.evaluateJavaScript(
+            """
+            Promise.withResolvers = undefined;
+            Object.groupBy = undefined;
+            Set.prototype.union = undefined;
+            Array.prototype.toSorted = undefined;
+            """
+        )
+        try await webView.evaluateJavaScript(source)
+
+        let restored = try await webView.evaluateJavaScript(
+                """
+                typeof Promise.withResolvers === 'function' &&
+                typeof Object.groupBy === 'function' &&
+                typeof Set.prototype.union === 'function' &&
+                typeof Array.prototype.toSorted === 'function'
+                """
+        ) as? Bool
+        XCTAssertEqual(restored, true)
+    }
+
+    func testBrowserGateOverrideIsTemporary() throws {
+        let context = try XCTUnwrap(JSContext())
+        context.evaluateScript(
+            """
+            var window = this;
+            var discourseInitCallback;
+            var CSS = { supports: function() { return false; } };
+            var document = {
+                addEventListener: function(name, callback) {
+                    if (name === 'discourse-init') discourseInitCallback = callback;
+                }
+            };
+            window.addEventListener = function() {};
+            function setTimeout() {}
+            """
+        )
+
+        context.evaluateScript(WebLoginCompatibility.browserGatePolyfillJS)
+        XCTAssertNil(context.exception)
+        XCTAssertTrue(
+            context.evaluateScript("CSS.supports('(grid-template-rows: subgrid)')").toBool()
+        )
+
+        context.evaluateScript("window.unsupportedBrowser = true")
+        XCTAssertFalse(context.evaluateScript("window.unsupportedBrowser").toBool())
+
+        context.evaluateScript("discourseInitCallback()")
+        XCTAssertFalse(
+            context.evaluateScript("CSS.supports('(grid-template-rows: subgrid)')").toBool()
+        )
+        context.evaluateScript("window.unsupportedBrowser = true")
+        XCTAssertTrue(context.evaluateScript("window.unsupportedBrowser").toBool())
+    }
+
     func testImportMapShimIsBundledWithTheApp() throws {
         let url = try XCTUnwrap(
             Bundle.main.url(forResource: "es-module-shims", withExtension: "js")
