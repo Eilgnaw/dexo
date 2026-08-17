@@ -285,10 +285,10 @@ final class WebLoginViewController: BaseViewController {
     }
 
     /// Wait for Discourse's first nonce-bearing script before starting the
-    /// import-map shim. This keeps the rewritten modules compatible with the
-    /// forum's strict Content Security Policy while still installing before
-    /// deferred module scripts execute.
-    private static func moduleShimsBootstrap(source: String) -> String {
+    /// import-map and module-source shim. This keeps rewritten modules
+    /// compatible with the forum's strict Content Security Policy while still
+    /// installing before deferred module scripts execute.
+    static func moduleShimsBootstrap(source: String) -> String {
         """
         (function() {
             var installed = false;
@@ -305,6 +305,9 @@ final class WebLoginViewController: BaseViewController {
                 if (observer) observer.disconnect();
                 window.esmsInitOptions = window.esmsInitOptions || {};
                 if (nonce) window.esmsInitOptions.nonce = nonce;
+                if (typeof window.__dexoESModuleSourceHook === 'function') {
+                    window.esmsInitOptions.source = window.__dexoESModuleSourceHook;
+                }
                 \(source)
             }
 

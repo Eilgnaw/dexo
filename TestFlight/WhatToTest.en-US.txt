@@ -3,4 +3,4 @@ What to Test
 - Sign in without push enabled. Confirm the original action finishes before the prompt; Enable shows loading and activates push, while No Thanks defers the prompt until the next login. Enabled accounts should not be prompted again.
 - Confirm spaces between adjacent inline code remain visible in paragraphs and nested content such as lists, quotes, tables, and details.
 - Add or re-add linux.do. Forum discovery should not show a false permission error, while a protection challenge should still offer the verification prompt.
-- On iOS 16.0–16.6, use Web Login. Confirm a current Discourse login page finishes loading and sign-in completes without an unsupported-browser page or endless loading.
+- Use Web Login. On iOS 16.0–16.6, a current Discourse page should load and sign-in should complete without `Unexpected token '{'`; iOS 16.7 and later should behave unchanged.
