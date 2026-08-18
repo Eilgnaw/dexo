@@ -57,9 +57,6 @@ final class FeedbackViewController: BaseViewController {
     private let showsCloseButton: Bool
 
     private var webView: WKWebView?
-    private var proxyLease: AnyObject?
-    private var trustEvaluator: WebViewProxyTrustEvaluator?
-    private var setupTask: Task<Void, Never>?
     private var progressObservation: NSKeyValueObservation?
 
     private let progressView: UIProgressView = {
@@ -167,58 +164,55 @@ final class FeedbackViewController: BaseViewController {
     }
 
     private func startWebViewSetup() {
-        setupTask?.cancel()
         hideError()
         progressView.progress = 0
         progressView.isHidden = false
-        setupTask = Task { [weak self] in
-            await self?.setUpWebView()
-        }
+        setUpWebView()
     }
 
-    private func setUpWebView() async {
-        do {
-            let configuration = WKWebViewConfiguration()
-            configuration.preferences.javaScriptCanOpenWindowsAutomatically = true
-            configuration.userContentController.addUserScript(
-                WKUserScript(
-                    source: makeWebThemePalette().javaScript,
-                    injectionTime: .atDocumentStart,
-                    forMainFrameOnly: true
-                )
-            )
-            let lease = try await WebViewDoHConfigurator.configure(configuration)
-            guard !Task.isCancelled else { return }
+    private func setUpWebView() {
+        let configuration = WKWebViewConfiguration()
+        configuration.preferences.javaScriptCanOpenWindowsAutomatically = true
 
-            proxyLease = lease
-            trustEvaluator = WebViewDoHConfigurator.makeTrustEvaluator()
-
-            let webView = WKWebView(frame: .zero, configuration: configuration)
-            webView.translatesAutoresizingMaskIntoConstraints = false
-            webView.navigationDelegate = self
-            webView.uiDelegate = self
-            webView.isOpaque = false
-            self.webView?.removeFromSuperview()
-            self.webView = webView
-
-            view.insertSubview(webView, belowSubview: progressView)
-            NSLayoutConstraint.activate([
-                webView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
-                webView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-                webView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-                webView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            ])
-
-            progressObservation = webView.observe(\.estimatedProgress, options: .new) { [weak self] webView, _ in
-                self?.progressView.progress = Float(webView.estimatedProgress)
-                self?.progressView.isHidden = webView.estimatedProgress >= 1
-            }
-            applyThemeBackground()
-            loadTarget(in: webView)
-        } catch {
-            guard !Task.isCancelled else { return }
-            showError()
+        // Feedback is an independent first-party service and must not inherit the
+        // forum WebViews' shared DoH proxy configuration. A dedicated ephemeral
+        // data store keeps this WebView on the system network path even while the
+        // app's DoH switch is enabled.
+        let dataStore = WKWebsiteDataStore.nonPersistent()
+        if #available(iOS 17.0, *) {
+            dataStore.proxyConfigurations = []
         }
+        configuration.websiteDataStore = dataStore
+        configuration.userContentController.addUserScript(
+            WKUserScript(
+                source: makeWebThemePalette().javaScript,
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: true
+            )
+        )
+
+        let webView = WKWebView(frame: .zero, configuration: configuration)
+        webView.translatesAutoresizingMaskIntoConstraints = false
+        webView.navigationDelegate = self
+        webView.uiDelegate = self
+        webView.isOpaque = false
+        self.webView?.removeFromSuperview()
+        self.webView = webView
+
+        view.insertSubview(webView, belowSubview: progressView)
+        NSLayoutConstraint.activate([
+            webView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            webView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            webView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            webView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+        ])
+
+        progressObservation = webView.observe(\.estimatedProgress, options: .new) { [weak self] webView, _ in
+            self?.progressView.progress = Float(webView.estimatedProgress)
+            self?.progressView.isHidden = webView.estimatedProgress >= 1
+        }
+        applyThemeBackground()
+        loadTarget(in: webView)
     }
 
     private func loadTarget(in webView: WKWebView) {
@@ -253,8 +247,6 @@ final class FeedbackViewController: BaseViewController {
     }
 
     private func tearDownWebView() {
-        setupTask?.cancel()
-        setupTask = nil
         progressObservation?.invalidate()
         progressObservation = nil
         webView?.stopLoading()
@@ -262,8 +254,6 @@ final class FeedbackViewController: BaseViewController {
         webView?.uiDelegate = nil
         webView?.removeFromSuperview()
         webView = nil
-        trustEvaluator = nil
-        proxyLease = nil
     }
 
     private func isFeedbackURL(_ url: URL) -> Bool {
@@ -347,18 +337,6 @@ extension FeedbackViewController: WKNavigationDelegate, WKUIDelegate {
         let error = error as NSError
         guard error.domain != NSURLErrorDomain || error.code != NSURLErrorCancelled else { return }
         showError()
-    }
-
-    func webView(
-        _ webView: WKWebView,
-        didReceive challenge: URLAuthenticationChallenge,
-        completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
-    ) {
-        if let credential = trustEvaluator?.credential(for: challenge) {
-            completionHandler(.useCredential, credential)
-        } else {
-            completionHandler(.performDefaultHandling, nil)
-        }
     }
 
     func webView(
