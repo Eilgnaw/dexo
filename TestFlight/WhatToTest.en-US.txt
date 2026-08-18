@@ -1,5 +1,8 @@
 What to Test
 
+- Open Settings → About → Feedback. Confirm the page accent, background, surfaces, and text match the current custom Dexo theme, the bottom safe area has no color gap, and both light and dark appearances render correctly.
+- Shake the device from both the main UI and a forum overlay. Only one bottom feedback prompt should appear; repeated shakes and shaking while Feedback is open should do nothing. Send Feedback should open the form and allow a submission.
+- Load Feedback with DoH both enabled and disabled. Confirm progress, retry after failure, and external links work. Clearing WebView data should not lose My Feedback because the anonymous device identifier is stored separately.
 - Sign in without push enabled. Confirm the original action finishes before the prompt; Enable shows loading and activates push, while No Thanks defers the prompt until the next login. Enabled accounts should not be prompted again.
 - Confirm spaces between adjacent inline code remain visible in paragraphs and nested content such as lists, quotes, tables, and details.
 - Add or re-add linux.do. Forum discovery should not show a false permission error, while a protection challenge should still offer the verification prompt.

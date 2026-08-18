@@ -77,6 +77,11 @@ final class SettingsViewController: ObservableViewController {
         case boostDisplay
     }
 
+    private enum AboutRow: Int, CaseIterable {
+        case feedback
+        case sourceCode
+    }
+
     private func networkRows() -> [NetworkRow] {
         [.dohSettings]
     }
@@ -108,7 +113,7 @@ extension SettingsViewController: UITableViewDataSource {
         case .general: return GeneralRow.allCases.count
         case .appearance: return AppearanceRow.allCases.count
         case .storage: return 1
-        case .about: return 1
+        case .about: return AboutRow.allCases.count
         case .network: return networkRows().count
         #if DEBUG
         case .debug: return DebugRow.allCases.count
@@ -165,7 +170,12 @@ extension SettingsViewController: UITableViewDataSource {
         case .storage:
             return makeStorageCell(tableView, indexPath: indexPath)
         case .about:
-            return makeSourceCodeCell(tableView, indexPath: indexPath)
+            switch AboutRow(rawValue: indexPath.row)! {
+            case .feedback:
+                return makeFeedbackCell(tableView, indexPath: indexPath)
+            case .sourceCode:
+                return makeSourceCodeCell(tableView, indexPath: indexPath)
+            }
         case .network:
             let row = networkRows()[indexPath.row]
             switch row {
@@ -317,6 +327,17 @@ extension SettingsViewController: UITableViewDataSource {
         return cell
     }
 
+    private func makeFeedbackCell(_ tableView: UITableView, indexPath: IndexPath) -> UITableViewCell {
+        let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
+        applyFonts(to: cell)
+        cell.textLabel?.text = String(localized: "feedback.title")
+        cell.detailTextLabel?.font = FontManager.shared.font(size: 13)
+        cell.detailTextLabel?.textColor = .secondaryLabel
+        cell.detailTextLabel?.text = String(localized: "feedback.settings.subtitle")
+        cell.accessoryType = .disclosureIndicator
+        return cell
+    }
+
     #if DEBUG
     private func makeRenderPreviewCell(_ tableView: UITableView, indexPath: IndexPath) -> UITableViewCell {
         let cell = UITableViewCell(style: .default, reuseIdentifier: nil)
@@ -380,8 +401,13 @@ extension SettingsViewController: UITableViewDelegate {
             let vc = CacheViewController()
             navigationController?.pushViewController(vc, animated: true)
         case .about:
-            if let url = URL(string: "https://github.com/Eilgnaw/dexo") {
-                UIApplication.shared.open(url)
+            switch AboutRow(rawValue: indexPath.row)! {
+            case .feedback:
+                FeedbackCoordinator.shared.openFeedback(from: self, presentation: .push)
+            case .sourceCode:
+                if let url = URL(string: "https://github.com/Eilgnaw/dexo") {
+                    UIApplication.shared.open(url)
+                }
             }
         case .network:
             let viewController = DoHSettingsViewController()

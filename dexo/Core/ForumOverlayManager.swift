@@ -57,7 +57,7 @@ final class ForumOverlayManager {
         let containerVC = ForumContainerViewController(forum: forum)
         currentContainer = containerVC
 
-        let overlay = UIWindow(windowScene: scene)
+        let overlay = FeedbackWindow(windowScene: scene)
         overlay.rootViewController = containerVC
         overlay.windowLevel = .normal
         overlay.overrideUserInterfaceStyle = window.overrideUserInterfaceStyle
