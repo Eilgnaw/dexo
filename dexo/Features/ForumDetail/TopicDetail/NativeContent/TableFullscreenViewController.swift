@@ -81,6 +81,8 @@ final class TableFullscreenViewController: UIViewController {
                 let prefs = UIWindowScene.GeometryPreferences.iOS(interfaceOrientations: .landscapeRight)
                 scene.requestGeometryUpdate(prefs) { _ in }
             }
+        } else {
+            UIViewController.attemptRotationToDeviceOrientation()
         }
     }
 

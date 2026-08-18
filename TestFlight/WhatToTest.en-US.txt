@@ -1,9 +1,9 @@
 What to Test
 
 - Open Settings → About → Feedback. Confirm the page accent, background, surfaces, and text match the current custom Dexo theme, the bottom safe area has no color gap, and both light and dark appearances render correctly.
-- Shake the device from both the main UI and a forum overlay. Only one bottom feedback prompt should appear; repeated shakes and shaking while Feedback is open should do nothing. Send Feedback should open the form and allow a submission.
+- Shake the device from both the main UI and a forum overlay. iOS 15 should use the system medium-height sheet, while iOS 16 and later keep the compact sheet. Repeated shakes and shaking while Feedback is open should do nothing. Send Feedback should open the form and allow a submission.
 - Open Feedback from Settings and the shake prompt with DoH both enabled and disabled. Confirm the service still loads over the system network, progress and retry work, and external links open correctly. Clearing WebView data should not lose My Feedback because the anonymous device identifier is stored separately.
 - Sign in without push enabled. Confirm the original action finishes before the prompt; Enable shows loading and activates push, while No Thanks defers the prompt until the next login. Enabled accounts should not be prompted again.
 - Confirm spaces between adjacent inline code remain visible in paragraphs and nested content such as lists, quotes, tables, and details.
 - Add or re-add linux.do. Forum discovery should not show a false permission error, while a protection challenge should still offer the verification prompt.
-- Use Web Login. On iOS 16.0–16.6, a current Discourse page should load and sign-in should complete without `Unexpected token '{'`; iOS 16.7 and later should behave unchanged.
+- Use Web Login. iOS 15.0–16.3 should install the runtime polyfills, import-map shim, and module syntax transform; iOS 15.0–16.6 should use the compatibility user agent, load a current Discourse page, complete sign-in, and return cookies without `Unexpected token '{'`. iOS 16.7 and later should behave unchanged.

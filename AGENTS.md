@@ -22,7 +22,7 @@ cd Packages/CookedHTML && swift test
 
 ## Architecture
 
-Dexo is a native iOS Discourse forum client (UIKit, iOS 16+). No SwiftUI.
+Dexo is a native iOS Discourse forum client (UIKit, iOS 15+). No SwiftUI.
 
 **MVVM with `@Observable`**
 - ViewModels use Swift 5.9 `@Observable` macro

@@ -25,7 +25,7 @@ final class WebLoginViewController: BaseViewController {
         // Discourse's current frontend requires relative colors and import
         // maps, which WebKit did not gain until iOS 16.4. The login flow only
         // needs enough compatibility to boot Discourse and capture `_t`.
-        if #unavailable(iOS 16.4) {
+        if WebLoginCompatibility.requiresLegacyBrowserEnvironment() {
             let runtimePolyfillsSource = try Self.loadRuntimePolyfillsSource()
             let runtimePolyfillsScript = WKUserScript(
                 source: runtimePolyfillsSource,
@@ -509,11 +509,24 @@ enum WebLoginCompatibility {
         setTimeout(restoreBrowserDetection, 15000);
     })();
     """
+    private static let minimumNativeBrowserEnvironmentVersion = OperatingSystemVersion(
+        majorVersion: 16,
+        minorVersion: 4,
+        patchVersion: 0
+    )
     private static let minimumAdvertisedVersion = OperatingSystemVersion(
         majorVersion: 16,
         minorVersion: 7,
         patchVersion: 0
     )
+
+    /// iOS 15 and early iOS 16 WebKit need the runtime polyfills, import-map
+    /// shim, and module syntax transform installed before Discourse boots.
+    static func requiresLegacyBrowserEnvironment(
+        operatingSystemVersion: OperatingSystemVersion = ProcessInfo.processInfo.operatingSystemVersion
+    ) -> Bool {
+        isOlder(operatingSystemVersion, than: minimumNativeBrowserEnvironmentVersion)
+    }
 
     /// Advertises at least iOS 16.7 to Discourse on older systems while
     /// retaining the device idiom and the real version on supported systems.

@@ -23,7 +23,7 @@ final class APNSTokenProvider {
         return try await withCheckedThrowingContinuation { continuation in
             waiters[id] = continuation
             Task { [weak self] in
-                try? await Task.sleep(for: .seconds(20))
+                try? await Task.sleep(nanoseconds: 20_000_000_000)
                 self?.timeout(id: id)
             }
         }

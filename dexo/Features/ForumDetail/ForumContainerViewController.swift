@@ -280,7 +280,7 @@ final class ForumContainerViewController: BaseViewController, AuthGating {
 
     private func schedulePendingAlertPresentation() {
         Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .milliseconds(350))
+            try? await Task.sleep(nanoseconds: 350_000_000)
             self?.presentPendingAlertsIfPossible()
         }
     }

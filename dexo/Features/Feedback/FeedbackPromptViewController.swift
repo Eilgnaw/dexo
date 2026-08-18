@@ -87,11 +87,15 @@ final class FeedbackPromptViewController: BaseViewController {
         ])
 
         if let sheet = sheetPresentationController {
-            sheet.detents = [
-                .custom(identifier: .init("feedbackPrompt")) { context in
-                    min(260, context.maximumDetentValue)
-                },
-            ]
+            if #available(iOS 16.0, *) {
+                sheet.detents = [
+                    .custom(identifier: .init("feedbackPrompt")) { context in
+                        min(260, context.maximumDetentValue)
+                    },
+                ]
+            } else {
+                sheet.detents = [.medium()]
+            }
             sheet.prefersGrabberVisible = true
         }
         applyThemeBackground()

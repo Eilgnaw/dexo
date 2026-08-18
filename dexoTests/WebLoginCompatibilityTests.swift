@@ -187,6 +187,48 @@ final class WebLoginCompatibilityTests: XCTestCase {
         XCTAssertFalse(userAgent.contains("16_3"))
     }
 
+    func testIOS15UsesLegacyEnvironmentAndAdvertisesMinimumSupportedVersion() {
+        let ios15 = OperatingSystemVersion(
+            majorVersion: 15,
+            minorVersion: 0,
+            patchVersion: 0
+        )
+
+        XCTAssertTrue(
+            WebLoginCompatibility.requiresLegacyBrowserEnvironment(
+                operatingSystemVersion: ios15
+            )
+        )
+        let userAgent = WebLoginCompatibility.mobileSafariUserAgent(
+            operatingSystemVersion: ios15,
+            idiom: .phone
+        )
+        XCTAssertTrue(userAgent.contains("iPhone OS 16_7"))
+        XCTAssertTrue(userAgent.contains("Version/16.7"))
+        XCTAssertFalse(userAgent.contains("iPhone OS 15_"))
+    }
+
+    func testIOS164AndLaterUseNativeBrowserEnvironment() {
+        XCTAssertFalse(
+            WebLoginCompatibility.requiresLegacyBrowserEnvironment(
+                operatingSystemVersion: .init(
+                    majorVersion: 16,
+                    minorVersion: 4,
+                    patchVersion: 0
+                )
+            )
+        )
+        XCTAssertFalse(
+            WebLoginCompatibility.requiresLegacyBrowserEnvironment(
+                operatingSystemVersion: .init(
+                    majorVersion: 17,
+                    minorVersion: 0,
+                    patchVersion: 0
+                )
+            )
+        )
+    }
+
     func testSupportedIOSKeepsItsRealVersion() {
         let userAgent = WebLoginCompatibility.mobileSafariUserAgent(
             operatingSystemVersion: .init(

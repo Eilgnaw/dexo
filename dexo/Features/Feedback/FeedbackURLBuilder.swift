@@ -45,7 +45,7 @@ enum FeedbackURLBuilder {
 
         private static func preferredLocalization(in bundle: Bundle) -> String {
             bundle.preferredLocalizations.first
-                ?? Locale.current.language.languageCode?.identifier
+                ?? Locale.current.languageCode
                 ?? "en"
         }
 

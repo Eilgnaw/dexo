@@ -85,8 +85,12 @@ final class PushDeepLinkCoordinator {
                 )
             }
             if notifications.count == identifiers.count {
-                Task {
-                    try? await UNUserNotificationCenter.current().setBadgeCount(0)
+                Task { @MainActor in
+                    if #available(iOS 16.0, *) {
+                        try? await UNUserNotificationCenter.current().setBadgeCount(0)
+                    } else {
+                        UIApplication.shared.applicationIconBadgeNumber = 0
+                    }
                 }
             }
         }
