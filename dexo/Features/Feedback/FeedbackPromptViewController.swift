@@ -93,7 +93,6 @@ final class FeedbackPromptViewController: BaseViewController {
                 },
             ]
             sheet.prefersGrabberVisible = true
-            sheet.preferredCornerRadius = 24
         }
         applyThemeBackground()
     }
