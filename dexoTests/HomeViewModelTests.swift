@@ -61,6 +61,18 @@ final class HomeViewModelTests: XCTestCase {
         ])
     }
 
+    func testCloudflareChallengeIsExposedToHomepage() async {
+        let api = MockHomeFeedAPI()
+        api.challengeFailures.insert(api.key(.activity, 0))
+        let viewModel = HomeViewModel(api: api)
+
+        await viewModel.loadTopics()
+
+        XCTAssertTrue(viewModel.requiresChallenge)
+        XCTAssertFalse(viewModel.requiresLogin)
+        XCTAssertNotNil(viewModel.errorMessage)
+    }
+
     private func topicList(ids: [Int], hasMore: Bool = false) throws -> DiscourseTopicList {
         let topics = ids.map { id in
             """
@@ -96,6 +108,7 @@ private final class MockHomeFeedAPI: HomeFeedAPIClient {
 
     var responses: [String: DiscourseTopicList] = [:]
     var failures = Set<String>()
+    var challengeFailures = Set<String>()
     var topicFeedCalls: [Call] = []
     var delayActivityPageZero = false
     var delayedContinuation: CheckedContinuation<DiscourseTopicList, any Error>?
@@ -112,6 +125,12 @@ private final class MockHomeFeedAPI: HomeFeedAPIClient {
             }
         }
         let requestKey = key(mode, page)
+        if challengeFailures.contains(requestKey) {
+            throw DiscourseAPIError(
+                messages: ["Cloudflare challenge required"],
+                errorType: "challenge_required"
+            )
+        }
         if failures.contains(requestKey) { throw Failure.requested }
         return try XCTUnwrap(responses[requestKey])
     }

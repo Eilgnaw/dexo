@@ -25,6 +25,7 @@ final class HomeViewModel {
     var canLoadMore = false
     var errorMessage: String?
     var requiresLogin = false
+    var requiresChallenge = false
 
     var categories: [DiscourseCategory] = []
     private(set) var selectedCategoryId: Int?
@@ -93,6 +94,7 @@ final class HomeViewModel {
         isLoading = true
         errorMessage = nil
         requiresLogin = false
+        requiresChallenge = false
         defer {
             if isCurrentRequest(
                 generation: generation,
@@ -135,8 +137,13 @@ final class HomeViewModel {
                 categoryId: requestedCategoryId
             ) else { return }
 
-            if let apiError = error as? DiscourseAPIError, apiError.isNotLoggedIn || apiError.isForbidden {
-                requiresLogin = true
+            if let apiError = error as? DiscourseAPIError {
+                if apiError.isChallengeRequired {
+                    requiresChallenge = true
+                }
+                if apiError.isNotLoggedIn || apiError.isForbidden {
+                    requiresLogin = true
+                }
             }
             errorMessage = error.localizedDescription
         }
@@ -189,7 +196,11 @@ final class HomeViewModel {
             canLoadMore = result.topicList.moreTopicsUrl != nil
             indexUsers(result.users)
         } catch {
-            // Silently fail on load-more; user can scroll again to retry
+            // Keep ordinary load-more failures silent, but a Cloudflare
+            // challenge needs an actionable prompt instead of endless retries.
+            if let apiError = error as? DiscourseAPIError, apiError.isChallengeRequired {
+                requiresChallenge = true
+            }
         }
     }
 
@@ -221,6 +232,7 @@ final class HomeViewModel {
         selectedCategoryId = nil
         errorMessage = nil
         requiresLogin = false
+        requiresChallenge = false
         await loadTopics()
     }
 
@@ -232,7 +244,12 @@ final class HomeViewModel {
             categories = list.categoryList.categories
             indexCategories(list.categoryList.categories)
         } catch {
-            // Non-critical — cells just won't show category names
+            // Category names are non-critical, but do not hide a Cloudflare
+            // challenge encountered by this parallel homepage request.
+            guard generation == requestGeneration else { return }
+            if let apiError = error as? DiscourseAPIError, apiError.isChallengeRequired {
+                requiresChallenge = true
+            }
         }
     }
 

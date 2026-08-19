@@ -1,6 +1,5 @@
 import CookedHTML
 import Lightbox
-import SafariServices
 import SDWebImage
 import UIKit
 
@@ -1742,7 +1741,7 @@ private extension VirtualizedTopicDetailViewController {
         guard let baseHost = URL(string: baseURL)?.host,
               url.host?.caseInsensitiveCompare(baseHost) == .orderedSame
         else {
-            present(SFSafariViewController(url: url), animated: true)
+            presentForumWebView(url, forumBaseURL: baseURL)
             return
         }
 
@@ -1769,7 +1768,7 @@ private extension VirtualizedTopicDetailViewController {
                 animated: true
             )
         } else {
-            present(SFSafariViewController(url: url), animated: true)
+            presentForumWebView(url, forumBaseURL: baseURL)
         }
     }
 

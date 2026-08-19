@@ -7,3 +7,5 @@ What to Test
 - Confirm spaces between adjacent inline code remain visible in paragraphs and nested content such as lists, quotes, tables, and details.
 - Add or re-add linux.do. Forum discovery should not show a false permission error, while a protection challenge should still offer the verification prompt.
 - Use Web Login. iOS 15.0–16.3 should install the runtime polyfills, import-map shim, and module syntax transform; iOS 15.0–16.6 should use the compatibility user agent, load a current Discourse page, complete sign-in, and return cookies without `Unexpected token '{'`. iOS 16.7 and later should behave unchanged.
+- Trigger a Cloudflare challenge while the linux.do home feed, categories, or next page is loading. Confirm the challenge prompt appears automatically only once for that failure and opens the verification flow.
+- Open links from a topic, its replies, and a reply preview. Native topic/category/tag/profile links should stay native; other web links should open in Dexo's WKWebView, forum pages should retain the Web Login session, and the top-right browser button should open the current page in the system browser.

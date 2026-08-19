@@ -1,6 +1,5 @@
 import CookedHTML
 import Lightbox
-import SafariServices
 import SDWebImage
 import UIKit
 
@@ -1587,11 +1586,11 @@ final class LegacyTopicDetailViewController: ObservableViewController {
         guard let baseHost = URL(string: baseURL)?.host,
               let linkHost = url.host
         else {
-            presentSafari(url)
+            presentForumWebView(url, forumBaseURL: baseURL)
             return
         }
 
-        if linkHost == baseHost {
+        if linkHost.caseInsensitiveCompare(baseHost) == .orderedSame {
             if let route = ForumTopicLinkParser.parse(url, baseURL: baseURL) {
                 let detailVC = TopicDetailControllerFactory.make(
                     api: api,
@@ -1610,21 +1609,16 @@ final class LegacyTopicDetailViewController: ObservableViewController {
                 let vc = UserProfileViewController(api: api, username: username)
                 navigationController?.pushViewController(vc, animated: true)
             } else {
-                presentSafari(url)
+                presentForumWebView(url, forumBaseURL: baseURL)
             }
         } else {
-            presentSafari(url)
+            presentForumWebView(url, forumBaseURL: baseURL)
         }
     }
 
     private func isWebURL(_ url: URL) -> Bool {
         guard let scheme = url.scheme?.lowercased() else { return false }
         return scheme == "http" || scheme == "https"
-    }
-
-    private func presentSafari(_ url: URL) {
-        let safari = SFSafariViewController(url: url)
-        present(safari, animated: true)
     }
 
     private func parseCategoryInfo(from url: URL) -> (slug: String, id: Int)? {

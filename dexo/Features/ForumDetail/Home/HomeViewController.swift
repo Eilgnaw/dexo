@@ -5,6 +5,7 @@ final class HomeViewController: ObservableViewController {
     private let viewModel: HomeViewModel
     private weak var authGate: AuthGating?
     private var locallyReadTopicIDs: Set<Int> = []
+    private var didPresentChallengeForCurrentFailure = false
 
     private lazy var sortBarButton: UIBarButtonItem = {
         let item = UIBarButtonItem(
@@ -271,6 +272,11 @@ final class HomeViewController: ObservableViewController {
         reloadLocalReadState()
     }
 
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        presentChallengePromptIfPossible()
+    }
+
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
         shouldRefreshOnNextHomeTabTap = false
@@ -298,6 +304,7 @@ final class HomeViewController: ObservableViewController {
             tableView.isHidden = true
             navigationItem.rightBarButtonItems = inheritedRightBarItems
             activityIndicator.stopAnimating()
+            presentChallengePromptIfPossible()
             return
         }
 
@@ -358,6 +365,23 @@ final class HomeViewController: ObservableViewController {
         } else {
             footerSpinner.stopAnimating()
         }
+
+        presentChallengePromptIfPossible()
+    }
+
+    private func presentChallengePromptIfPossible() {
+        guard viewModel.requiresChallenge else {
+            didPresentChallengeForCurrentFailure = false
+            return
+        }
+        guard api.isLinuxDo,
+              !didPresentChallengeForCurrentFailure,
+              viewIfLoaded?.window != nil,
+              presentedViewController == nil
+        else { return }
+
+        didPresentChallengeForCurrentFailure = true
+        presentChallengePrompt()
     }
 
     private func buildSortMenu() -> UIMenu {

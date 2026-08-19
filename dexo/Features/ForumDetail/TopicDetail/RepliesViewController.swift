@@ -324,7 +324,12 @@ extension RepliesViewController: PostCellDelegate {
             }
             return
         }
-        openExternalURL(url)
+        let scheme = url.scheme?.lowercased()
+        if scheme == "http" || scheme == "https" {
+            presentForumWebView(url, forumBaseURL: baseURL)
+        } else {
+            UIApplication.shared.open(url)
+        }
     }
 
     private func openExternalURL(_ url: URL) {
