@@ -40,6 +40,8 @@ enum DiscourseRouter {
     case notifications(limit: Int? = nil, filter: String? = nil)
     case privateMessages(username: String, filter: PrivateMessageFilter)
     case createTopic
+    case updateTopic(id: Int)
+    case updatePost(id: Int)
     case createBoost(postId: Int)
     case postReplies(postId: Int)
     case categoryTopics(slug: String, id: Int, feedMode: TopicFeedMode?, page: Int)
@@ -81,7 +83,7 @@ enum DiscourseRouter {
         switch self {
         case .createTopic, .createBookmark, .createBoost, .uploadImage, .topicTimings, .messageBusPoll, .likePost, .acceptSolution, .unacceptSolution, .createPrivateMessage, .flagPost, .subscribePush, .unsubscribePush:
             return .post
-        case .toggleReaction, .votePoll, .markNotificationRead, .followUser:
+        case .updateTopic, .updatePost, .toggleReaction, .votePoll, .markNotificationRead, .followUser:
             return .put
         case .deleteBookmark, .deleteBoost, .removePollVote, .unlikePost, .unfollowUser:
             return .delete
@@ -155,6 +157,10 @@ enum DiscourseRouter {
             return "/topics/\(filter.pathSegment)/\(username).json"
         case .createTopic:
             return "/posts.json"
+        case .updateTopic(let id):
+            return "/t/-/\(id).json"
+        case .updatePost(let id):
+            return "/posts/\(id).json"
         case .createBoost(let postId):
             return "/discourse-boosts/posts/\(postId)/boosts"
         case .postReplies(let postId):

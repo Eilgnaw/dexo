@@ -27,6 +27,41 @@ struct TopicTimingCircuitBreaker {
     }
 }
 
+enum DiscourseEditRequestBuilder {
+    static func post(raw: String, originalRaw: String) -> [String: Any] {
+        [
+            "post": [
+                "raw": raw,
+                "original_text": originalRaw,
+            ],
+        ]
+    }
+
+    static func topic(
+        title: String,
+        originalTitle: String,
+        categoryId: Int?,
+        tags: [DiscourseEditableTag],
+        originalTags: [DiscourseTopicDetail.Tag]
+    ) -> [String: Any] {
+        let tagParameters: [[String: Any]] = tags.map { tag in
+            var value: [String: Any] = ["name": tag.name]
+            if let id = tag.id { value["id"] = id }
+            return value
+        }
+        let originalTagParameters: [[String: Any]] = originalTags.map {
+            ["id": $0.id, "name": $0.name]
+        }
+        return [
+            "title": title,
+            "original_title": originalTitle,
+            "category_id": categoryId ?? 0,
+            "tags": tagParameters,
+            "original_tags": originalTagParameters,
+        ]
+    }
+}
+
 func assessTopicTimingResponse(
     statusCode: Int?,
     data: Data?,
@@ -552,6 +587,39 @@ final class DiscourseAPI {
             params["reply_to_post_number"] = replyToPostNumber
         }
         return try await request(route: .createTopic, parameters: params)
+    }
+
+    /// Updates a post body while protecting against overwriting a newer edit.
+    func updatePost(id: Int, raw: String, originalRaw: String) async throws -> DiscourseTopicDetail.Post {
+        let response: DiscourseUpdatePostResponse = try await request(
+            route: .updatePost(id: id),
+            parameters: DiscourseEditRequestBuilder.post(raw: raw, originalRaw: originalRaw),
+            encoding: JSONEncoding.default
+        )
+        return response.post
+    }
+
+    /// Updates all topic-level metadata in one revision. Passing the original
+    /// title and tag IDs enables Discourse's edit-conflict protection.
+    func updateTopic(
+        id: Int,
+        title: String,
+        originalTitle: String,
+        categoryId: Int?,
+        tags: [DiscourseEditableTag],
+        originalTags: [DiscourseTopicDetail.Tag]
+    ) async throws {
+        let _: EmptyDiscourseResponse = try await request(
+            route: .updateTopic(id: id),
+            parameters: DiscourseEditRequestBuilder.topic(
+                title: title,
+                originalTitle: originalTitle,
+                categoryId: categoryId,
+                tags: tags,
+                originalTags: originalTags
+            ),
+            encoding: JSONEncoding.default
+        )
     }
 
     /// Flag/report a post.

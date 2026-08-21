@@ -1226,6 +1226,19 @@ final class PostNativeCell: UITableViewCell, TopicPostIDProviding {
         guard let post = currentPost else { return }
         var actions: [UIAction] = []
 
+        if post.isEditableByCurrentUser, delegate?.supportsPostEditing == true {
+            let title = delegate?.postCellShouldUseTopicEditor(for: post) == true
+                ? String(localized: "edit.topic.menu")
+                : String(localized: "edit.post.menu")
+            actions.append(UIAction(
+                title: title,
+                image: UIImage(systemName: "pencil")
+            ) { [weak self] _ in
+                guard let self, let post = self.currentPost else { return }
+                self.delegate?.postCell(didTapEditPost: post)
+            })
+        }
+
         // Copy Link
         actions.append(UIAction(
             title: String(localized: "post.copy_link"),

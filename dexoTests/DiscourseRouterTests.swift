@@ -2,6 +2,184 @@ import XCTest
 @testable import dexo
 
 final class DiscourseRouterTests: XCTestCase {
+    private enum TestFailure: Error {
+        case metadata
+    }
+
+    private final class TopicEditingAPIMock: TopicEditingAPI {
+        var postUpdateCount = 0
+        var topicUpdateCount = 0
+        var topicError: Error?
+        let updatedPost: DiscourseTopicDetail.Post
+
+        init(updatedPost: DiscourseTopicDetail.Post) {
+            self.updatedPost = updatedPost
+        }
+
+        func updatePost(
+            id: Int,
+            raw: String,
+            originalRaw: String
+        ) async throws -> DiscourseTopicDetail.Post {
+            postUpdateCount += 1
+            return updatedPost
+        }
+
+        func updateTopic(
+            id: Int,
+            title: String,
+            originalTitle: String,
+            categoryId: Int?,
+            tags: [DiscourseEditableTag],
+            originalTags: [DiscourseTopicDetail.Tag]
+        ) async throws {
+            topicUpdateCount += 1
+            if let topicError { throw topicError }
+        }
+    }
+
+    func testEditRoutesUseDiscourseUpdateEndpoints() {
+        let post = DiscourseRouter.updatePost(id: 123)
+        XCTAssertEqual(post.path, "/posts/123.json")
+        XCTAssertEqual(post.method, .put)
+
+        let topic = DiscourseRouter.updateTopic(id: 456)
+        XCTAssertEqual(topic.path, "/t/-/456.json")
+        XCTAssertEqual(topic.method, .put)
+    }
+
+    func testPostEditPermissionsDecodeAndDefaultToDenied() throws {
+        let editableData = Data(
+            #"{"id":1,"username":"alice","post_number":2,"can_edit":true,"yours":true}"#.utf8
+        )
+        let editable = try JSONDecoder().decode(DiscourseTopicDetail.Post.self, from: editableData)
+        XCTAssertTrue(editable.canEdit)
+        XCTAssertTrue(editable.yours)
+        XCTAssertTrue(editable.isEditableByCurrentUser)
+
+        let moderatorData = Data(
+            #"{"id":2,"username":"bob","post_number":3,"can_edit":true,"yours":false}"#.utf8
+        )
+        let moderatorEditable = try JSONDecoder().decode(DiscourseTopicDetail.Post.self, from: moderatorData)
+        XCTAssertFalse(moderatorEditable.isEditableByCurrentUser)
+
+        let missingData = Data(#"{"id":3,"username":"alice","post_number":4}"#.utf8)
+        let missing = try JSONDecoder().decode(DiscourseTopicDetail.Post.self, from: missingData)
+        XCTAssertFalse(missing.canEdit)
+        XCTAssertFalse(missing.yours)
+        XCTAssertFalse(missing.isEditableByCurrentUser)
+    }
+
+    func testEditRequestBuildersPreserveConflictAndTagFields() {
+        let postPayload = DiscourseEditRequestBuilder.post(
+            raw: "new body",
+            originalRaw: "old body"
+        )
+        let post = postPayload["post"] as? [String: String]
+        XCTAssertEqual(post?["raw"], "new body")
+        XCTAssertEqual(post?["original_text"], "old body")
+
+        let originalTags = [
+            DiscourseTopicDetail.Tag(id: 7, name: "swift", slug: "swift"),
+        ]
+        let topicPayload = DiscourseEditRequestBuilder.topic(
+            title: "New title",
+            originalTitle: "Old title",
+            categoryId: 12,
+            tags: [
+                DiscourseEditableTag(id: 7, name: "swift"),
+                DiscourseEditableTag(name: "ios"),
+            ],
+            originalTags: originalTags
+        )
+        XCTAssertEqual(topicPayload["title"] as? String, "New title")
+        XCTAssertEqual(topicPayload["original_title"] as? String, "Old title")
+        XCTAssertEqual(topicPayload["category_id"] as? Int, 12)
+        let tags = topicPayload["tags"] as? [[String: Any]]
+        XCTAssertEqual(tags?[0]["id"] as? Int, 7)
+        XCTAssertEqual(tags?[0]["name"] as? String, "swift")
+        XCTAssertNil(tags?[1]["id"])
+        XCTAssertEqual(tags?[1]["name"] as? String, "ios")
+        let originals = topicPayload["original_tags"] as? [[String: Any]]
+        XCTAssertEqual(originals?[0]["id"] as? Int, 7)
+    }
+
+    func testTopicEditStateRequiresARealValidChange() throws {
+        let data = Data(
+            #"{"id":99,"title":"Original","posts_count":1,"reply_count":0,"category_id":12,"created_at":"2026-08-19T00:00:00Z","tags":[{"id":7,"name":"swift","slug":"swift"},{"id":8,"name":"ios","slug":"ios"}],"post_stream":{"posts":[{"id":100,"username":"alice","post_number":1,"raw":"Original body","can_edit":true,"yours":true}],"stream":[100]}}"#.utf8
+        )
+        let topic = try JSONDecoder().decode(DiscourseTopicDetail.self, from: data)
+        let post = try XCTUnwrap(topic.postStream.posts.first)
+        let api = DiscourseAPI(testingBaseURL: "https://example.com") { _ in
+            throw CancellationError()
+        }
+        let viewModel = TopicComposerViewModel(
+            api: api,
+            mode: .edit(topic: topic, post: post)
+        )
+
+        XCTAssertFalse(viewModel.hasUnsavedChanges)
+        XCTAssertFalse(viewModel.canSubmit)
+
+        viewModel.selectedTags.reverse()
+        XCTAssertFalse(viewModel.hasUnsavedChanges)
+
+        viewModel.body = "Updated body"
+        XCTAssertTrue(viewModel.hasUnsavedChanges)
+        XCTAssertTrue(viewModel.canSubmit)
+
+        viewModel.body = "   "
+        XCTAssertFalse(viewModel.canSubmit)
+    }
+
+    func testTopicEditRetriesOnlyMetadataAfterPartialSave() async throws {
+        let data = Data(
+            #"{"id":99,"title":"Original","posts_count":1,"reply_count":0,"category_id":12,"created_at":"2026-08-19T00:00:00Z","tags":[{"id":7,"name":"swift","slug":"swift"}],"post_stream":{"posts":[{"id":100,"username":"alice","post_number":1,"raw":"Original body","can_edit":true,"yours":true}],"stream":[100]}}"#.utf8
+        )
+        let topic = try JSONDecoder().decode(DiscourseTopicDetail.self, from: data)
+        let post = try XCTUnwrap(topic.postStream.posts.first)
+        let editingAPI = TopicEditingAPIMock(updatedPost: post)
+        editingAPI.topicError = TestFailure.metadata
+        let api = DiscourseAPI(testingBaseURL: "https://example.com") { _ in
+            throw CancellationError()
+        }
+        let viewModel = TopicComposerViewModel(
+            api: api,
+            mode: .edit(topic: topic, post: post),
+            editingAPI: editingAPI
+        )
+        viewModel.body = "Updated body"
+        viewModel.title = "Updated title"
+
+        do {
+            _ = try await viewModel.submit()
+            XCTFail("Expected metadata update to fail")
+        } catch let error as TopicEditSaveError {
+            XCTAssertTrue(error.bodyWasSaved)
+        }
+        XCTAssertEqual(editingAPI.postUpdateCount, 1)
+        XCTAssertEqual(editingAPI.topicUpdateCount, 1)
+        XCTAssertTrue(viewModel.hasServerChanges)
+        XCTAssertTrue(viewModel.hasUnsavedChanges)
+        XCTAssertTrue(viewModel.canSubmit)
+
+        do {
+            _ = try await viewModel.submit()
+            XCTFail("Expected metadata retry to fail")
+        } catch let error as TopicEditSaveError {
+            XCTAssertTrue(error.bodyWasSaved)
+        }
+        XCTAssertEqual(editingAPI.postUpdateCount, 1)
+        XCTAssertEqual(editingAPI.topicUpdateCount, 2)
+
+        editingAPI.topicError = nil
+        _ = try await viewModel.submit()
+        XCTAssertEqual(editingAPI.postUpdateCount, 1)
+        XCTAssertEqual(editingAPI.topicUpdateCount, 3)
+        XCTAssertFalse(viewModel.hasUnsavedChanges)
+        XCTAssertFalse(viewModel.canSubmit)
+    }
+
     func testLinuxDoFollowRoutesUsePluginEndpointAndMethods() {
         let list = DiscourseRouter.followedUsers(username: "current-user")
         XCTAssertEqual(list.path, "/u/current-user/follow/following.json")

@@ -5,6 +5,8 @@ final class TopicComposerViewController: ObservableViewController {
     private let api: DiscourseAPI
     private let viewModel: TopicComposerViewModel
     var onTopicCreated: ((Int) -> Void)?
+    var onTopicUpdated: (() -> Void)?
+    private var didNotifyTopicUpdated = false
 
     private var isEmojiPickerVisible = false
     private var hasLoadedEmojiCatalog = false
@@ -162,7 +164,10 @@ final class TopicComposerViewController: ObservableViewController {
     }()
 
     private lazy var sendButton: UIBarButtonItem = {
-        UIBarButtonItem(title: String(localized: "compose.send"), style: .done, target: self, action: #selector(sendTapped))
+        let title = viewModel.isEditing
+            ? String(localized: "action.save")
+            : String(localized: "compose.send")
+        return UIBarButtonItem(title: title, style: .done, target: self, action: #selector(sendTapped))
     }()
 
     private lazy var sendSpinner: UIBarButtonItem = {
@@ -197,10 +202,18 @@ final class TopicComposerViewController: ObservableViewController {
 
     // MARK: - Init
 
-    init(api: DiscourseAPI) {
+    init(api: DiscourseAPI, mode: TopicComposerMode = .create) {
         self.api = api
-        self.viewModel = TopicComposerViewModel(api: api)
+        self.viewModel = TopicComposerViewModel(api: api, mode: mode)
         super.init(nibName: nil, bundle: nil)
+    }
+
+    convenience init(
+        api: DiscourseAPI,
+        editing topic: DiscourseTopicDetail,
+        post: DiscourseTopicDetail.Post
+    ) {
+        self.init(api: api, mode: .edit(topic: topic, post: post))
     }
 
     @available(*, unavailable)
@@ -213,7 +226,9 @@ final class TopicComposerViewController: ObservableViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
 
-        title = String(localized: "compose.title")
+        title = viewModel.isEditing
+            ? String(localized: "edit.topic.title")
+            : String(localized: "compose.title")
         navigationItem.leftBarButtonItem = UIBarButtonItem(
             title: String(localized: "action.cancel"), style: .plain,
             target: self, action: #selector(cancelTapped)
@@ -230,7 +245,13 @@ final class TopicComposerViewController: ObservableViewController {
         titleField.addTarget(self, action: #selector(titleChanged), for: .editingChanged)
         tagField.addTarget(self, action: #selector(tagFieldChanged), for: .editingChanged)
 
-        restoreDraftIfAny()
+        if viewModel.isEditing {
+            titleField.text = viewModel.title
+            bodyTextView.text = viewModel.body
+            bodyPlaceholder.isHidden = !viewModel.body.isEmpty
+        } else {
+            restoreDraftIfAny()
+        }
 
         Task {
             await viewModel.loadCategories()
@@ -244,6 +265,9 @@ final class TopicComposerViewController: ObservableViewController {
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        if viewModel.isEditing {
+            navigationController?.presentationController?.delegate = self
+        }
         titleField.becomeFirstResponder()
     }
 
@@ -377,6 +401,9 @@ final class TopicComposerViewController: ObservableViewController {
         bodyPlaceholder.isHidden = !bodyTextView.text.isEmpty
         updateTagSuggestions()
         rebuildTagChips()
+        let theme = ThemeManager.shared
+        uploadOverlay.backgroundColor = theme.cardBackgroundColor.withAlphaComponent(0.82)
+        view.backgroundColor = theme.cardBackgroundColor
     }
 
     // MARK: - Category Menu
@@ -430,6 +457,26 @@ final class TopicComposerViewController: ObservableViewController {
     // MARK: - Actions
 
     @objc private func cancelTapped() {
+        if viewModel.isEditing {
+            guard viewModel.hasUnsavedChanges else {
+                dismissAfterEdit()
+                return
+            }
+            let alert = UIAlertController(
+                title: String(localized: "edit.discard.title"),
+                message: String(localized: "edit.discard.message"),
+                preferredStyle: .alert
+            )
+            alert.addAction(UIAlertAction(
+                title: String(localized: "compose.discard.action"),
+                style: .destructive
+            ) { [weak self] _ in
+                self?.dismissAfterEdit()
+            })
+            alert.addAction(UIAlertAction(title: String(localized: "action.cancel"), style: .cancel))
+            present(alert, animated: true)
+            return
+        }
         if viewModel.hasUnsavedChanges {
             let alert = UIAlertController(
                 title: String(localized: "compose.discard.title"),
@@ -454,32 +501,67 @@ final class TopicComposerViewController: ObservableViewController {
 
     @objc private func sendTapped() {
         navigationItem.rightBarButtonItem = sendSpinner
-        bodyTextView.isEditable = false
-        titleField.isEnabled = false
+        setFormEnabled(false)
 
-        Task {
+        Task { [self] in
             do {
-                let topicId = try await viewModel.submit()
-                viewModel.clearDraft()
-                dismiss(animated: true) { [weak self] in
-                    self?.onTopicCreated?(topicId)
+                let result = try await viewModel.submit()
+                switch result {
+                case .created(let topicId):
+                    viewModel.clearDraft()
+                    dismiss(animated: true) { [weak self] in
+                        self?.onTopicCreated?(topicId)
+                    }
+                case .updated:
+                    dismissAfterEdit()
                 }
             } catch {
                 // Auto-save so the user doesn't lose their post when the network flakes.
-                viewModel.saveDraft()
+                if !viewModel.isEditing { viewModel.saveDraft() }
                 navigationItem.rightBarButtonItem = sendButton
-                sendButton.isEnabled = true
-                bodyTextView.isEditable = true
-                titleField.isEnabled = true
+                setFormEnabled(true)
+                sendButton.isEnabled = viewModel.canSubmit
+                let underlyingError = (error as? TopicEditSaveError)?.underlyingError ?? error
+                if presentChallengePromptIfNeeded(error: underlyingError, on: api) {
+                    return
+                }
+                let partialSave = (error as? TopicEditSaveError)?.bodyWasSaved == true
+                let failureTitle = viewModel.isEditing
+                    ? String(localized: "edit.save.failed")
+                    : String(localized: "compose.send.failed")
                 let alert = UIAlertController(
-                    title: String(localized: "compose.send.failed"),
-                    message: error.localizedDescription,
+                    title: partialSave
+                        ? String(localized: "edit.topic.partial.title")
+                        : failureTitle,
+                    message: partialSave
+                        ? String(localized: "edit.topic.partial.message \(underlyingError.localizedDescription)")
+                        : underlyingError.localizedDescription,
                     preferredStyle: .alert
                 )
-                alert.addAction(UIAlertAction(title: "OK", style: .default))
+                alert.addAction(UIAlertAction(title: String(localized: "action.ok"), style: .default))
                 present(alert, animated: true)
             }
         }
+    }
+
+    private func setFormEnabled(_ enabled: Bool) {
+        bodyTextView.isEditable = enabled
+        titleField.isEnabled = enabled
+        categoryButton.isEnabled = enabled
+        tagField.isEnabled = enabled
+    }
+
+    private func dismissAfterEdit() {
+        let callback = consumeTopicUpdatedCallback()
+        dismiss(animated: true) {
+            callback?()
+        }
+    }
+
+    private func consumeTopicUpdatedCallback() -> (() -> Void)? {
+        guard viewModel.hasServerChanges, !didNotifyTopicUpdated else { return nil }
+        didNotifyTopicUpdated = true
+        return onTopicUpdated
     }
 
     @objc private func titleChanged() {
@@ -925,5 +1007,21 @@ extension TopicComposerViewController: PHPickerViewControllerDelegate {
                 self?.uploadImage(image)
             }
         }
+    }
+}
+
+// MARK: - UIAdaptivePresentationControllerDelegate
+
+extension TopicComposerViewController: UIAdaptivePresentationControllerDelegate {
+    func presentationControllerShouldDismiss(_ presentationController: UIPresentationController) -> Bool {
+        !viewModel.isEditing || !viewModel.hasUnsavedChanges
+    }
+
+    func presentationControllerDidAttemptToDismiss(_ presentationController: UIPresentationController) {
+        cancelTapped()
+    }
+
+    func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
+        consumeTopicUpdatedCallback()?()
     }
 }

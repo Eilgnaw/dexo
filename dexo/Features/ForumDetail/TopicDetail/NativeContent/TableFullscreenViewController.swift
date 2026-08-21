@@ -28,12 +28,15 @@ final class TableFullscreenViewController: UIViewController {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    // The app is otherwise portrait-only (see `MainTabBarController`). This VC
-    // opts into landscape so iOS rotates the screen on present + restores on
-    // dismiss. `Project.swift` has to advertise landscape support on iPhone
-    // for the request to be honored.
-    override var supportedInterfaceOrientations: UIInterfaceOrientationMask { .landscape }
-    override var preferredInterfaceOrientationForPresentation: UIInterfaceOrientation { .landscapeRight }
+    // iPhone is portrait-only. Keep the wider landscape presentation on iPad,
+    // where the app still advertises support for every orientation.
+    override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
+        traitCollection.userInterfaceIdiom == .pad ? .landscape : .portrait
+    }
+
+    override var preferredInterfaceOrientationForPresentation: UIInterfaceOrientation {
+        traitCollection.userInterfaceIdiom == .pad ? .landscapeRight : .portrait
+    }
     override var prefersStatusBarHidden: Bool { true }
     override var prefersHomeIndicatorAutoHidden: Bool { true }
 
@@ -70,11 +73,10 @@ final class TableFullscreenViewController: UIViewController {
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        // `supportedInterfaceOrientations` alone won't make iOS rotate an
-        // already-presented portrait app — these explicit calls request the
-        // geometry update. Required on iOS 16+, harmless on real devices,
-        // and necessary for the simulator (which doesn't auto-rotate via
-        // accelerometer).
+        guard traitCollection.userInterfaceIdiom == .pad else { return }
+
+        // `supportedInterfaceOrientations` alone won't make an already-presented
+        // iPad scene rotate, so explicitly request the landscape geometry.
         if #available(iOS 16.0, *) {
             setNeedsUpdateOfSupportedInterfaceOrientations()
             if let scene = view.window?.windowScene {
@@ -156,7 +158,7 @@ final class TableFullscreenViewController: UIViewController {
 
 /// Drives a "snapshot zoom" present/dismiss for `TableFullscreenViewController`:
 /// instead of the default modal slide, the inline table appears to enlarge
-/// into the landscape fullscreen view (and shrink back on dismiss).
+/// into the fullscreen view (and shrink back on dismiss).
 final class TableExpandTransitionController: NSObject, UIViewControllerTransitioningDelegate {
     private weak var sourceView: UIView?
 
@@ -202,8 +204,8 @@ private final class TableExpandAnimator: NSObject, UIViewControllerAnimatedTrans
 
     // MARK: - Present
     //
-    // Scale-up + fade from the screen center. iOS's orientation change runs
-    // alongside; the combined motion reads as "the table grows into landscape".
+    // Scale-up + fade from the screen center. On iPad, the orientation change
+    // runs alongside the transition.
 
     private func animatePresent(using context: UIViewControllerContextTransitioning) {
         let container = context.containerView
@@ -232,9 +234,8 @@ private final class TableExpandAnimator: NSObject, UIViewControllerAnimatedTrans
 
     // MARK: - Dismiss
     //
-    // Just a fast fade — no scale reverse. The user asked for the close not to
-    // include rotation theatrics; a quick alpha drop hands the screen off to
-    // iOS's own (unavoidable) rotation animation with minimal extra motion.
+    // Just a fast fade — no scale reverse. On iPad, the alpha drop hands the
+    // screen off to the system's rotation animation with minimal extra motion.
 
     private func animateDismiss(using context: UIViewControllerContextTransitioning) {
         guard let fromView = context.view(forKey: .from) else {

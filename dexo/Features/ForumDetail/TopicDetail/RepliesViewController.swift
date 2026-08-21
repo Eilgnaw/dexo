@@ -302,6 +302,8 @@ extension RepliesViewController {
 // MARK: - PostCellDelegate
 
 extension RepliesViewController: PostCellDelegate {
+    var supportsPostEditing: Bool { true }
+
     func postCell(didTapImageURL url: URL, inPostId postId: Int) {
         openExternalURL(url)
     }
@@ -365,6 +367,54 @@ extension RepliesViewController: PostCellDelegate {
         authGate.requireAuth { [weak self] in
             guard let self else { return }
             self.presentReplyComposer(for: post)
+        }
+    }
+
+    func postCell(didTapEditPost post: DiscourseTopicDetail.Post) {
+        activityIndicator.startAnimating()
+        Task { [self] in
+            do {
+                let freshPost = try await api.fetchPost(id: post.id)
+                activityIndicator.stopAnimating()
+                guard freshPost.isEditableByCurrentUser, freshPost.raw != nil else {
+                    let alert = UIAlertController(
+                        title: String(localized: "edit.save.failed"),
+                        message: String(localized: "edit.permission.changed"),
+                        preferredStyle: .alert
+                    )
+                    alert.addAction(UIAlertAction(title: String(localized: "action.ok"), style: .default))
+                    present(alert, animated: true)
+                    return
+                }
+
+                let composer = ReplyComposerViewController(
+                    api: api,
+                    topicId: topicId,
+                    editing: freshPost,
+                    baseURL: baseURL
+                )
+                composer.onPostUpdated = { [weak self] _ in
+                    guard let self else { return }
+                    Task { _ = await self.refreshPost(id: freshPost.id) }
+                }
+                let navigation = UINavigationController(rootViewController: composer)
+                if let sheet = navigation.sheetPresentationController {
+                    sheet.detents = [.large()]
+                    sheet.prefersGrabberVisible = true
+                }
+                present(navigation, animated: true)
+            } catch {
+                activityIndicator.stopAnimating()
+                if !presentChallengePromptIfNeeded(error: error, on: api) {
+                    let alert = UIAlertController(
+                        title: String(localized: "edit.save.failed"),
+                        message: error.localizedDescription,
+                        preferredStyle: .alert
+                    )
+                    alert.addAction(UIAlertAction(title: String(localized: "action.ok"), style: .default))
+                    present(alert, animated: true)
+                }
+            }
         }
     }
 

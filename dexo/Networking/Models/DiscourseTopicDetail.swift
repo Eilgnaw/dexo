@@ -302,6 +302,8 @@ struct DiscourseTopicDetail: Decodable {
         let createdAt: String
         let cooked: String
         let raw: String?
+        let canEdit: Bool
+        let yours: Bool
         let postNumber: Int
         let replyCount: Int
         let replyToPostNumber: Int?
@@ -326,6 +328,9 @@ struct DiscourseTopicDetail: Decodable {
         var likeAction: ActionSummary? { actionsSummary.first(where: { $0.id == 2 }) }
         var isLikedByCurrentUser: Bool { likeAction?.acted == true }
         var likeCount: Int { likeAction?.count ?? 0 }
+        /// Editing is deliberately limited to the current user's own posts,
+        /// even when a moderator account could edit somebody else's content.
+        var isEditableByCurrentUser: Bool { canEdit && yours }
         /// Whether the current user can flag/report this post (ids 3,4,7,8).
         var canFlag: Bool { actionsSummary.contains { [3, 4, 7, 8].contains($0.id) && $0.canAct == true } }
         var boosts: [Boost]
@@ -356,7 +361,8 @@ struct DiscourseTopicDetail: Decodable {
         let deletedPostPlaceholder: Bool
 
         enum CodingKeys: String, CodingKey {
-            case id, name, username, cooked, raw
+            case id, name, username, cooked, raw, yours
+            case canEdit = "can_edit"
             case avatarTemplate = "avatar_template"
             case createdAt = "created_at"
             case postNumber = "post_number"
@@ -402,6 +408,8 @@ struct DiscourseTopicDetail: Decodable {
             createdAt = (try? container.decodeIfPresent(String.self, forKey: .createdAt)) ?? ""
             cooked = (try? container.decodeIfPresent(String.self, forKey: .cooked)) ?? ""
             raw = try? container.decodeIfPresent(String.self, forKey: .raw)
+            canEdit = (try? container.decodeIfPresent(Bool.self, forKey: .canEdit)) ?? false
+            yours = (try? container.decodeIfPresent(Bool.self, forKey: .yours)) ?? false
             postNumber = (try? container.decodeIfPresent(Int.self, forKey: .postNumber)) ?? 0
             replyCount = (try? container.decodeIfPresent(Int.self, forKey: .replyCount)) ?? 0
             replyToPostNumber = try? container.decodeIfPresent(Int.self, forKey: .replyToPostNumber)
@@ -431,6 +439,11 @@ struct DiscourseTopicDetail: Decodable {
             deletedPostPlaceholder = (try? container.decodeIfPresent(Bool.self, forKey: .deletedPostPlaceholder)) ?? false
         }
     }
+}
+
+/// Response shape returned by `PUT /posts/{id}.json`.
+struct DiscourseUpdatePostResponse: Decodable {
+    let post: DiscourseTopicDetail.Post
 }
 
 /// Response shape from `GET /n/{slug}/{id}.json` — Discourse's nested-replies

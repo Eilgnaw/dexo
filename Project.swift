@@ -85,7 +85,7 @@ let project = Project(
                     "INFOPLIST_KEY_CFBundleDisplayName": "Dexo",
                     "INFOPLIST_KEY_LSApplicationCategoryType": "public.app-category.utilities",
                     "INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents": "YES",
-                    "INFOPLIST_KEY_UISupportedInterfaceOrientations": "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight",
+                    "INFOPLIST_KEY_UISupportedInterfaceOrientations": "UIInterfaceOrientationPortrait",
                     "INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad": "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown",
                     "LD_RUNPATH_SEARCH_PATHS": "$(inherited) @executable_path/Frameworks",
                     "OTHER_LDFLAGS": "$(inherited) -ObjC",

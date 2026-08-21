@@ -1502,7 +1502,19 @@ final class VirtualizedTopicDetailViewController: ObservableViewController, UIGe
     }
 
     private func moreMenu(for post: DiscourseTopicDetail.Post, sourceView: UIView) -> UIMenu {
-        var actions: [UIAction] = [
+        var actions: [UIAction] = []
+        if post.isEditableByCurrentUser {
+            let isRegularTopicStarter = postCellShouldUseTopicEditor(for: post)
+            actions.append(UIAction(
+                title: isRegularTopicStarter
+                    ? String(localized: "edit.topic.menu")
+                    : String(localized: "edit.post.menu"),
+                image: UIImage(systemName: "pencil")
+            ) { [weak self] _ in
+                self?.postCell(didTapEditPost: post)
+            })
+        }
+        actions.append(contentsOf: [
             UIAction(title: String(localized: "post.copy_link"), image: UIImage(systemName: "link")) { [weak self] _ in
                 guard let self else { return }
                 UIPasteboard.general.string = "\(self.baseURL)/t/\(self.topicId)/\(post.postNumber)"
@@ -1513,7 +1525,7 @@ final class VirtualizedTopicDetailViewController: ObservableViewController, UIGe
             ) { [weak self] _ in
                 self?.postCell(didToggleBookmarkForPost: post, isBookmarked: !post.bookmarked)
             },
-        ]
+        ])
         if post.canFlag {
             actions.append(UIAction(title: String(localized: "post.flag"), image: UIImage(systemName: "flag"), attributes: .destructive) { [weak self, weak sourceView] _ in
                 guard let self else { return }
@@ -1983,6 +1995,13 @@ extension VirtualizedTopicDetailViewController: TopicDetailBottomBarDelegate {
 }
 
 extension VirtualizedTopicDetailViewController: PostCellDelegate {
+    var supportsPostEditing: Bool { true }
+
+    func postCellShouldUseTopicEditor(for post: DiscourseTopicDetail.Post) -> Bool {
+        let archetype = viewModel.topic?.archetype
+        return post.postNumber == 1 && (archetype == nil || archetype == "regular")
+    }
+
     func postCell(didTapImageURL url: URL, inPostId postId: Int) {
         let request = TopicImageBrowserRequest.make(
             annotatedBlocks: viewModel.renderDocuments[postId]?.annotatedBlocks ?? [],
@@ -2020,6 +2039,10 @@ extension VirtualizedTopicDetailViewController: PostCellDelegate {
     func postCell(didTapToggleDetails detailsIndex: Int, postId: Int) {}
     func postCell(didTapReplyToPost post: DiscourseTopicDetail.Post) {
         requireAuthentication { [weak self] in self?.presentReplyComposer(for: post) }
+    }
+
+    func postCell(didTapEditPost post: DiscourseTopicDetail.Post) {
+        presentEditComposer(for: post)
     }
 
     func postCell(didTapReplyReferenceForPost post: DiscourseTopicDetail.Post) {
@@ -2375,5 +2398,109 @@ extension VirtualizedTopicDetailViewController: PostCellDelegate {
             sheet.prefersGrabberVisible = true
         }
         present(navigation, animated: true)
+    }
+
+    private func presentEditComposer(for post: DiscourseTopicDetail.Post) {
+        activityIndicator.startAnimating()
+        Task { [self] in
+            do {
+                let freshPost = try await api.fetchPost(id: post.id)
+                activityIndicator.stopAnimating()
+                guard freshPost.isEditableByCurrentUser, freshPost.raw != nil else {
+                    presentEditPermissionChangedAlert()
+                    return
+                }
+
+                let archetype = viewModel.topic?.archetype
+                let editsTopic = freshPost.postNumber == 1 && (archetype == nil || archetype == "regular")
+                if editsTopic, let topic = viewModel.topic {
+                    let composer = TopicComposerViewController(
+                        api: api,
+                        editing: topic,
+                        post: freshPost
+                    )
+                    composer.onTopicUpdated = { [weak self] in
+                        guard let self else { return }
+                        Task { await self.reloadAfterEdit(floor: freshPost.postNumber) }
+                    }
+                    let navigation = UINavigationController(rootViewController: composer)
+                    if let sheet = navigation.sheetPresentationController {
+                        sheet.detents = [.large()]
+                        sheet.prefersGrabberVisible = true
+                    }
+                    present(navigation, animated: true)
+                } else {
+                    let composer = ReplyComposerViewController(
+                        api: api,
+                        topicId: topicId,
+                        editing: freshPost,
+                        baseURL: baseURL
+                    )
+                    composer.onPostUpdated = { [weak self] _ in
+                        guard let self else { return }
+                        Task { await self.reloadAfterEdit(floor: freshPost.postNumber) }
+                    }
+                    let navigation = UINavigationController(rootViewController: composer)
+                    if let sheet = navigation.sheetPresentationController {
+                        sheet.detents = [.large()]
+                        sheet.prefersGrabberVisible = true
+                    }
+                    present(navigation, animated: true)
+                }
+            } catch {
+                activityIndicator.stopAnimating()
+                if !presentChallengePromptIfNeeded(error: error, on: api) {
+                    presentError(error)
+                }
+            }
+        }
+    }
+
+    private func presentEditPermissionChangedAlert() {
+        let alert = UIAlertController(
+            title: String(localized: "edit.save.failed"),
+            message: String(localized: "edit.permission.changed"),
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: String(localized: "action.ok"), style: .default))
+        present(alert, animated: true)
+    }
+
+    private func reloadAfterEdit(floor: Int) async {
+        activityIndicator.startAnimating()
+        if viewModel.isTreeMode {
+            await viewModel.loadNestedTopic(
+                id: topicId,
+                sort: viewModel.treeSort,
+                containerWidth: view.bounds.width
+            )
+            viewModel.expandAncestors(ofPostNumber: floor)
+        } else {
+            await viewModel.loadTopic(
+                id: topicId,
+                containerWidth: view.bounds.width,
+                nearPostNumber: floor
+            )
+        }
+
+        preparedLayout = nil
+        heightPolicyCache.removeAll(keepingCapacity: true)
+        resolvedHeights.removeAll(keepingCapacity: true)
+        resolvedBoostHeights.removeAll(keepingCapacity: true)
+        solutionSummaryDocuments.removeAll(keepingCapacity: true)
+        solutionSummaryBodyHeights.removeAll(keepingCapacity: true)
+        pendingDynamicHeights.removeAll(keepingCapacity: true)
+        timelineLayout.reloadAllHeights()
+        applySnapshot(reloadVisible: true)
+        collectionView.layoutIfNeeded()
+        scrollToFloor(floor, position: .top)
+        activityIndicator.stopAnimating()
+
+        if let topic = viewModel.topic,
+           let scope = ReadHistoryScope.current(api: api)
+        {
+            try? LocalReadHistoryStore.shared.record(topic: topic, scope: scope)
+        }
+        handleLoadErrorIfNeeded()
     }
 }

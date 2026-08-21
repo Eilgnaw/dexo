@@ -1,5 +1,10 @@
 What to Test
 
+- On a regular topic you created and can still edit, open the first post's … menu and choose Edit Topic. Confirm the title, body, category, and tags are prefilled; change each field and save, then verify the topic refreshes at the first post. Your replies should offer Edit Post for body-only editing, while other users' posts should not show an edit action.
+- After changing a topic or reply, tap Cancel or pull down the editor. Confirm Dexo asks before discarding unsaved changes; Save should remain disabled when nothing changed. If edit permission expires before the editor opens, a clear message should appear instead of submitting.
+- Simulate the topic body saving while the title/category/tag update fails. Confirm Topic Partially Saved appears; retrying should submit only the remaining topic details, and a successful save should refresh topic and reply views with the latest content.
+- Rotate an iPhone in the main UI, forum overlay, and full-screen table. The UI should remain portrait throughout. iPad should continue supporting portrait and landscape, including landscape full-screen tables.
+- Create a topic without choosing a category. Confirm publishing is blocked with “Select a category before publishing,” then succeeds after selecting one.
 - Open Settings → About → Feedback. Confirm the page accent, background, surfaces, and text match the current custom Dexo theme, the bottom safe area has no color gap, and both light and dark appearances render correctly.
 - Shake the device from both the main UI and a forum overlay. iOS 15 should use the system medium-height sheet, while iOS 16 and later keep the compact sheet. Repeated shakes and shaking while Feedback is open should do nothing. Send Feedback should open the form and allow a submission.
 - Open Feedback from Settings and the shake prompt with DoH both enabled and disabled. Confirm the service still loads over the system network, progress and retry work, and external links open correctly. Clearing WebView data should not lose My Feedback because the anonymous device identifier is stored separately.

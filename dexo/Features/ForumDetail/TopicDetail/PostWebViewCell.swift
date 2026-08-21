@@ -1,6 +1,8 @@
 import UIKit
 
 protocol PostCellDelegate: AnyObject {
+    var supportsPostEditing: Bool { get }
+    func postCellShouldUseTopicEditor(for post: DiscourseTopicDetail.Post) -> Bool
     func postCell(didTapImageURL url: URL, inPostId postId: Int)
     func postCell(didTapLinkURL url: URL)
     func postCell(didTapShowRepliesForPostId postId: Int)
@@ -24,5 +26,12 @@ protocol PostCellDelegate: AnyObject {
     func postCell(didVotePoll pollName: String, options: [String], forPost post: DiscourseTopicDetail.Post)
     func postCell(didRemovePollVote pollName: String, forPost post: DiscourseTopicDetail.Post)
     func postCell(didTapFlagPost post: DiscourseTopicDetail.Post, sourceView: UIView)
+    func postCell(didTapEditPost post: DiscourseTopicDetail.Post)
     func postCell(didLongPressPost post: DiscourseTopicDetail.Post)
+}
+
+extension PostCellDelegate {
+    var supportsPostEditing: Bool { false }
+    func postCellShouldUseTopicEditor(for post: DiscourseTopicDetail.Post) -> Bool { false }
+    func postCell(didTapEditPost post: DiscourseTopicDetail.Post) {}
 }

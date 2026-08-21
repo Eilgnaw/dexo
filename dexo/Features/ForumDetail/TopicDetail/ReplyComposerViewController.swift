@@ -5,8 +5,17 @@ final class ReplyComposerViewController: BaseViewController {
     private let api: DiscourseAPI
     private let topicId: Int
     private let replyToPost: DiscourseTopicDetail.Post?
+    private let editingPost: DiscourseTopicDetail.Post?
     private let baseURL: String
     var onPostCreated: ((_ postId: Int, _ postNumber: Int) -> Void)?
+    var onPostUpdated: ((_ post: DiscourseTopicDetail.Post) -> Void)?
+
+    private var originalRaw: String?
+
+    private var isEditingPost: Bool { editingPost != nil }
+    private var hasUnsavedChanges: Bool {
+        isEditingPost && textView.text != originalRaw
+    }
 
     private var isEmojiPickerVisible = false
     private var hasLoadedEmojiCatalog = false
@@ -34,6 +43,29 @@ final class ReplyComposerViewController: BaseViewController {
         label.font = FontManager.shared.monospacedDigitFont(size: 12)
         label.textColor = .tertiaryLabel
         label.text = "0"
+        label.translatesAutoresizingMaskIntoConstraints = false
+        return label
+    }()
+
+    private let editContextView: UIView = {
+        let view = UIView()
+        view.layer.cornerRadius = 12
+        view.translatesAutoresizingMaskIntoConstraints = false
+        view.isHidden = true
+        return view
+    }()
+
+    private let editContextIcon: UIImageView = {
+        let imageView = UIImageView(image: UIImage(systemName: "pencil.line"))
+        imageView.contentMode = .scaleAspectFit
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+        return imageView
+    }()
+
+    private let editContextLabel: UILabel = {
+        let label = UILabel()
+        label.font = FontManager.shared.font(size: 13, weight: .medium)
+        label.numberOfLines = 1
         label.translatesAutoresizingMaskIntoConstraints = false
         return label
     }()
@@ -71,8 +103,9 @@ final class ReplyComposerViewController: BaseViewController {
     }()
 
     private lazy var sendButton: UIBarButtonItem = {
-        let item = UIBarButtonItem(title: String(localized: "reply.send"), style: .done, target: self, action: #selector(sendTapped))
-        item.accessibilityLabel = String(localized: "reply.send")
+        let title = isEditingPost ? String(localized: "action.save") : String(localized: "reply.send")
+        let item = UIBarButtonItem(title: title, style: .done, target: self, action: #selector(sendTapped))
+        item.accessibilityLabel = title
         return item
     }()
 
@@ -86,6 +119,17 @@ final class ReplyComposerViewController: BaseViewController {
         self.api = api
         self.topicId = topicId
         self.replyToPost = replyToPost
+        self.editingPost = nil
+        self.baseURL = baseURL
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    init(api: DiscourseAPI, topicId: Int, editing post: DiscourseTopicDetail.Post, baseURL: String) {
+        self.api = api
+        self.topicId = topicId
+        self.replyToPost = nil
+        self.editingPost = post
+        self.originalRaw = post.raw
         self.baseURL = baseURL
         super.init(nibName: nil, bundle: nil)
     }
@@ -96,7 +140,9 @@ final class ReplyComposerViewController: BaseViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
 
-        if let username = replyToPost?.username {
+        if isEditingPost {
+            title = String(localized: "edit.post.title")
+        } else if let username = replyToPost?.username {
             title = String(localized: "reply.title.to \(username)")
         } else {
             title = String(localized: "reply.title")
@@ -106,14 +152,29 @@ final class ReplyComposerViewController: BaseViewController {
         cancelItem.accessibilityLabel = String(localized: "action.cancel")
         navigationItem.leftBarButtonItem = cancelItem
         navigationItem.rightBarButtonItem = sendButton
-        updateSendButton()
 
+        view.addSubview(editContextView)
+        editContextView.addSubview(editContextIcon)
+        editContextView.addSubview(editContextLabel)
         view.addSubview(textView)
         view.addSubview(placeholderLabel)
         view.addSubview(charCountLabel)
 
         NSLayoutConstraint.activate([
-            textView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            editContextView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: isEditingPost ? 10 : 0),
+            editContextView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
+            editContextView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
+            editContextView.heightAnchor.constraint(equalToConstant: isEditingPost ? 42 : 0),
+
+            editContextIcon.leadingAnchor.constraint(equalTo: editContextView.leadingAnchor, constant: 12),
+            editContextIcon.centerYAnchor.constraint(equalTo: editContextView.centerYAnchor),
+            editContextIcon.widthAnchor.constraint(equalToConstant: 17),
+            editContextIcon.heightAnchor.constraint(equalToConstant: 17),
+            editContextLabel.leadingAnchor.constraint(equalTo: editContextIcon.trailingAnchor, constant: 8),
+            editContextLabel.trailingAnchor.constraint(equalTo: editContextView.trailingAnchor, constant: -12),
+            editContextLabel.centerYAnchor.constraint(equalTo: editContextView.centerYAnchor),
+
+            textView.topAnchor.constraint(equalTo: editContextView.bottomAnchor, constant: isEditingPost ? 6 : 0),
             textView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             textView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             textView.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor),
@@ -127,11 +188,56 @@ final class ReplyComposerViewController: BaseViewController {
 
         textView.inputAccessoryView = markdownToolbar
         textView.delegate = self
+
+        if let editingPost {
+            editContextView.isHidden = false
+            editContextLabel.text = String(
+                localized: "edit.post.context \(editingPost.postNumber) \(editingPost.username)"
+            )
+            textView.text = editingPost.raw ?? ""
+        }
+        updatePlaceholder()
+        updateCharCount()
+        updateSendButton()
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(editThemeDidChange),
+            name: ThemeManager.themeDidChangeNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(editThemeDidChange),
+            name: FontManager.fontDidChangeNotification,
+            object: nil
+        )
+        applyEditTheme()
     }
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        if isEditingPost {
+            navigationController?.presentationController?.delegate = self
+        }
         textView.becomeFirstResponder()
+    }
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        applyEditTheme()
+    }
+
+    @objc private func editThemeDidChange() {
+        applyEditTheme()
+    }
+
+    private func applyEditTheme() {
+        let theme = ThemeManager.shared
+        editContextView.backgroundColor = theme.codeBackgroundColor
+        editContextIcon.tintColor = theme.accentColor
+        editContextLabel.textColor = theme.accentColor
+        editContextLabel.font = FontManager.shared.font(size: 13, weight: .medium)
     }
 
     // MARK: - Toolbar Actions
@@ -331,7 +437,8 @@ final class ReplyComposerViewController: BaseViewController {
     }
 
     private func updateSendButton() {
-        sendButton.isEnabled = !(textView.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        let hasContent = !textView.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        sendButton.isEnabled = hasContent && (!isEditingPost || hasUnsavedChanges)
     }
 
     private func updateCharCount() {
@@ -341,6 +448,22 @@ final class ReplyComposerViewController: BaseViewController {
     // MARK: - Actions
 
     @objc private func cancelTapped() {
+        if isEditingPost, hasUnsavedChanges {
+            let alert = UIAlertController(
+                title: String(localized: "edit.discard.title"),
+                message: String(localized: "edit.discard.message"),
+                preferredStyle: .alert
+            )
+            alert.addAction(UIAlertAction(
+                title: String(localized: "compose.discard.action"),
+                style: .destructive
+            ) { [weak self] _ in
+                self?.dismiss(animated: true)
+            })
+            alert.addAction(UIAlertAction(title: String(localized: "action.cancel"), style: .cancel))
+            present(alert, animated: true)
+            return
+        }
         dismiss(animated: true)
     }
 
@@ -351,8 +474,22 @@ final class ReplyComposerViewController: BaseViewController {
         navigationItem.rightBarButtonItem = sendSpinner
         textView.isEditable = false
 
-        Task {
+        Task { [self] in
             do {
+                if let editingPost {
+                    guard let originalRaw else { throw CancellationError() }
+                    let updated = try await api.updatePost(
+                        id: editingPost.id,
+                        raw: textView.text,
+                        originalRaw: originalRaw
+                    )
+                    self.originalRaw = textView.text
+                    let callback = onPostUpdated
+                    dismiss(animated: true) {
+                        callback?(updated)
+                    }
+                    return
+                }
                 let response = try await api.createReply(
                     topicId: topicId,
                     replyToPostNumber: replyToPost?.postNumber,
@@ -385,12 +522,15 @@ final class ReplyComposerViewController: BaseViewController {
                 if presentChallengePromptIfNeeded(error: error, on: api) {
                     return
                 }
+                let failureTitle = isEditingPost
+                    ? String(localized: "edit.save.failed")
+                    : String(localized: "reply.send.failed")
                 let alert = UIAlertController(
-                    title: String(localized: "reply.send.failed"),
+                    title: failureTitle,
                     message: error.localizedDescription,
                     preferredStyle: .alert
                 )
-                alert.addAction(UIAlertAction(title: "OK", style: .default))
+                alert.addAction(UIAlertAction(title: String(localized: "action.ok"), style: .default))
                 present(alert, animated: true)
             }
         }
@@ -420,5 +560,17 @@ extension ReplyComposerViewController: PHPickerViewControllerDelegate {
                 self.uploadImage(image)
             }
         }
+    }
+}
+
+// MARK: - UIAdaptivePresentationControllerDelegate
+
+extension ReplyComposerViewController: UIAdaptivePresentationControllerDelegate {
+    func presentationControllerShouldDismiss(_ presentationController: UIPresentationController) -> Bool {
+        !isEditingPost || !hasUnsavedChanges
+    }
+
+    func presentationControllerDidAttemptToDismiss(_ presentationController: UIPresentationController) {
+        cancelTapped()
     }
 }
