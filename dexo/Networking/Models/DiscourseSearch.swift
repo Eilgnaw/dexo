@@ -43,10 +43,19 @@ struct DiscourseSearchResult: Decodable {
 
     struct GroupedSearchResult: Decodable {
         let morePosts: Bool?
+        let moreFullPageResults: Bool?
         let term: String?
+
+        /// `/search.json` is the full-page search endpoint. Discourse reports
+        /// pagination for it with `more_full_page_results`; `more_posts` is
+        /// used by the compact/header search response on older installations.
+        var hasMoreFullPageResults: Bool {
+            moreFullPageResults ?? morePosts ?? false
+        }
 
         enum CodingKeys: String, CodingKey {
             case morePosts = "more_posts"
+            case moreFullPageResults = "more_full_page_results"
             case term
         }
     }

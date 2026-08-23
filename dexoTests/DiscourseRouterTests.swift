@@ -239,6 +239,35 @@ final class DiscourseRouterTests: XCTestCase {
         )
     }
 
+    func testSearchRouteUsesOneBasedPageParameter() {
+        XCTAssertEqual(
+            DiscourseRouter.search(term: "swift", page: 1).path,
+            "/search.json?q=swift&page=1"
+        )
+        XCTAssertEqual(
+            DiscourseRouter.search(term: "swift", page: 2).path,
+            "/search.json?q=swift&page=2"
+        )
+    }
+
+    func testFullPageSearchPaginationDecodesDedicatedFlag() throws {
+        let data = Data(
+            #"{"grouped_search_result":{"more_posts":null,"more_full_page_results":true,"term":"swift"}}"#.utf8
+        )
+        let result = try JSONDecoder().decode(DiscourseSearchResult.self, from: data)
+
+        XCTAssertTrue(try XCTUnwrap(result.groupedSearchResult).hasMoreFullPageResults)
+    }
+
+    func testSearchPaginationFallsBackToLegacyMorePostsFlag() throws {
+        let data = Data(
+            #"{"grouped_search_result":{"more_posts":true,"term":"swift"}}"#.utf8
+        )
+        let result = try JSONDecoder().decode(DiscourseSearchResult.self, from: data)
+
+        XCTAssertTrue(try XCTUnwrap(result.groupedSearchResult).hasMoreFullPageResults)
+    }
+
     func testCreatedFeedKeepsServerOrderOnEveryPage() {
         XCTAssertEqual(
             DiscourseRouter.topicFeed(mode: .created, page: 0).path,

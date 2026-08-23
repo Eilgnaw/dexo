@@ -669,7 +669,7 @@ final class DiscourseAPI {
         return EmojiStore.catalogGroups()
     }
 
-    func search(term: String, page: Int = 0) async throws -> DiscourseSearchResult {
+    func search(term: String, page: Int = 1) async throws -> DiscourseSearchResult {
         try await request(route: .search(term: term, page: page))
     }
 

@@ -24,6 +24,9 @@ import Perception
 
 @Perceptible
 final class SearchViewModel {
+    private static let firstPage = 1
+    private static let lastPage = 10
+
     var searchResults: [DiscourseSearchResult.SearchPost] = []
     private(set) var topicsById: [Int: DiscourseSearchResult.SearchTopic] = [:]
     var isSearching = false
@@ -45,7 +48,7 @@ final class SearchViewModel {
     }
 
     private let api: DiscourseAPI
-    private var currentPage = 0
+    private var currentPage = SearchViewModel.firstPage
     private var currentTerm = ""
     private(set) var categoriesById: [Int: DiscourseCategory] = [:]
 
@@ -87,15 +90,15 @@ final class SearchViewModel {
 
         isSearching = true
         currentTerm = term
-        currentPage = 0
+        currentPage = Self.firstPage
         hasSearched = true
         errorMessage = nil
 
         do {
-            let result = try await api.search(term: query, page: 0)
+            let result = try await api.search(term: query, page: Self.firstPage)
             searchResults = result.posts ?? []
             topicsById = Self.buildTopicsMap(from: result)
-            canLoadMore = result.groupedSearchResult?.morePosts ?? false
+            canLoadMore = Self.canLoadMore(after: result, page: currentPage)
         } catch {
             searchResults = []
             topicsById = [:]
@@ -119,7 +122,7 @@ final class SearchViewModel {
             searchResults.append(contentsOf: filtered)
             topicsById.merge(Self.buildTopicsMap(from: result)) { _, new in new }
             currentPage = nextPage
-            canLoadMore = result.groupedSearchResult?.morePosts ?? false
+            canLoadMore = Self.canLoadMore(after: result, page: currentPage)
         } catch {
             canLoadMore = false
         }
@@ -129,6 +132,10 @@ final class SearchViewModel {
     private static func buildTopicsMap(from result: DiscourseSearchResult) -> [Int: DiscourseSearchResult.SearchTopic] {
         guard let topics = result.topics else { return [:] }
         return Dictionary(uniqueKeysWithValues: topics.map { ($0.id, $0) })
+    }
+
+    private static func canLoadMore(after result: DiscourseSearchResult, page: Int) -> Bool {
+        page < lastPage && (result.groupedSearchResult?.hasMoreFullPageResults ?? false)
     }
 
     private func buildQuery(term: String) -> String {

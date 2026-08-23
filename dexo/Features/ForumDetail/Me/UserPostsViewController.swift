@@ -140,7 +140,7 @@ extension UserPostsViewController: UITableViewDelegate {
 
     func tableView(_ tableView: UITableView, willDisplay cell: UITableViewCell, forRowAt indexPath: IndexPath) {
         let totalRows = tableView.numberOfRows(inSection: 0)
-        if indexPath.row >= totalRows - 1 {
+        if indexPath.row >= totalRows - 5 {
             Task {
                 await viewModel.loadMore()
             }

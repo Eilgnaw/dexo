@@ -4,6 +4,9 @@ import Perception
 
 @Perceptible
 final class UserPostsViewModel {
+    private static let firstPage = 1
+    private static let lastPage = 10
+
     enum Filter {
         case topics
         case posts
@@ -18,7 +21,7 @@ final class UserPostsViewModel {
     private let api: DiscourseAPI
     private let username: String
     private let filter: Filter
-    private var currentPage = 0
+    private var currentPage = UserPostsViewModel.firstPage
 
     init(api: DiscourseAPI, username: String, filter: Filter) {
         self.api = api
@@ -29,14 +32,14 @@ final class UserPostsViewModel {
     func load() async {
         isLoading = true
         errorMessage = nil
-        currentPage = 0
+        currentPage = Self.firstPage
 
         let query = buildQuery()
         do {
-            let result = try await api.search(term: query, page: 0)
+            let result = try await api.search(term: query, page: Self.firstPage)
             searchResults = result.posts ?? []
             topicsById = Self.buildTopicsMap(from: result)
-            canLoadMore = result.groupedSearchResult?.morePosts ?? false
+            canLoadMore = Self.canLoadMore(after: result, page: currentPage)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -57,7 +60,7 @@ final class UserPostsViewModel {
             searchResults.append(contentsOf: filtered)
             topicsById.merge(Self.buildTopicsMap(from: result)) { _, new in new }
             currentPage = nextPage
-            canLoadMore = result.groupedSearchResult?.morePosts ?? false
+            canLoadMore = Self.canLoadMore(after: result, page: currentPage)
         } catch {
             canLoadMore = false
         }
@@ -67,6 +70,10 @@ final class UserPostsViewModel {
     private static func buildTopicsMap(from result: DiscourseSearchResult) -> [Int: DiscourseSearchResult.SearchTopic] {
         guard let topics = result.topics else { return [:] }
         return Dictionary(uniqueKeysWithValues: topics.map { ($0.id, $0) })
+    }
+
+    private static func canLoadMore(after result: DiscourseSearchResult, page: Int) -> Bool {
+        page < lastPage && (result.groupedSearchResult?.hasMoreFullPageResults ?? false)
     }
 
     private func buildQuery() -> String {

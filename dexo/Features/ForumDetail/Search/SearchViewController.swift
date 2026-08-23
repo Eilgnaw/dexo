@@ -417,7 +417,9 @@ final class SearchViewController: ObservableViewController, UISearchBarDelegate 
             return post.id
         }
         snapshot.appendItems(uniqueIds, toSection: 0)
-        dataSource.apply(snapshot, animatingDifferences: true)
+        dataSource.apply(snapshot, animatingDifferences: true) { [weak self] in
+            self?.loadMoreIfLastRowIsVisible()
+        }
     }
 
     func searchBarSearchButtonClicked(_ searchBar: UISearchBar) {
@@ -430,6 +432,20 @@ final class SearchViewController: ObservableViewController, UISearchBarDelegate 
         searchTask?.cancel()
         searchTask = Task {
             await viewModel.search(term: term)
+        }
+    }
+
+    private func loadMoreIfLastRowIsVisible() {
+        guard viewModel.canLoadMore,
+              !viewModel.isSearching,
+              let lastVisibleRow = tableView.indexPathsForVisibleRows?.map(\.row).max()
+        else { return }
+
+        let lastRow = tableView.numberOfRows(inSection: 0) - 1
+        guard lastVisibleRow >= lastRow else { return }
+
+        Task {
+            await viewModel.loadMoreResults()
         }
     }
 
@@ -468,7 +484,7 @@ extension SearchViewController: UITableViewDelegate {
 
     func tableView(_ tableView: UITableView, willDisplay cell: UITableViewCell, forRowAt indexPath: IndexPath) {
         let totalRows = tableView.numberOfRows(inSection: 0)
-        if indexPath.row >= totalRows - 1 {
+        if indexPath.row >= totalRows - 5 {
             Task {
                 await viewModel.loadMoreResults()
             }
