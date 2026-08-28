@@ -245,6 +245,40 @@ final class ThemeManager {
         return color
     }
 
+    /// A solid accent surface with readable text, including very light custom themes.
+    var profileHeaderPalette: ProfileHeaderPalette {
+        ProfileHeaderPalette(accent: accentColor, background: backgroundColor)
+    }
+
+    /// Image-derived colors are scoped to the personal center, not the global theme.
+    func profilePagePalette(imageTint: UIColor? = nil) -> ProfilePagePalette {
+        guard let imageTint else {
+            return ProfilePagePalette(
+                header: profileHeaderPalette, background: backgroundColor,
+                cardBackground: cardBackgroundColor, usesImageColors: false
+            )
+        }
+        let page = UIColor { traits in
+            let tint = imageTint.resolvedColor(with: traits)
+            return tint.blended(into: traits.userInterfaceStyle == .dark ? .black : .white, ratio: 0.20)
+        }
+        let card = UIColor { traits in
+            let tint = imageTint.resolvedColor(with: traits)
+            let neutral = traits.userInterfaceStyle == .dark
+                ? UIColor.secondarySystemGroupedBackground.resolvedColor(with: traits) : .white
+            return tint.blended(into: neutral, ratio: traits.userInterfaceStyle == .dark ? 0.16 : 0.05)
+        }
+        let header = UIColor { traits in
+            imageTint.resolvedColor(with: traits).blended(
+                into: .black, ratio: traits.userInterfaceStyle == .dark ? 0.55 : 0.85
+            )
+        }
+        return ProfilePagePalette(
+            header: ProfileHeaderPalette(accent: header, background: page),
+            background: page, cardBackground: card, usesImageColors: true
+        )
+    }
+
     // MARK: - Apply
 
     func applyToAllWindows() {
@@ -297,6 +331,70 @@ final class ThemeManager {
                 return UIColor(hex: lightHex) ?? .systemBackground
             }
         }
+    }
+}
+
+struct ProfilePagePalette {
+    let header: ProfileHeaderPalette
+    let background: UIColor
+    let cardBackground: UIColor
+    let usesImageColors: Bool
+}
+
+struct ProfileHeaderPalette {
+    let background: UIColor
+    let foreground: UIColor
+    let secondaryForeground: UIColor
+    let imageScrim: UIColor
+
+    init(accent: UIColor, background: UIColor) {
+        let surface = UIColor { traits in
+            let base = background.resolvedColor(with: traits)
+            let tint = accent.resolvedColor(with: traits)
+            var alpha: CGFloat = 0
+            tint.getRed(nil, green: nil, blue: nil, alpha: &alpha)
+            // Custom accents may include alpha; the header itself must remain opaque.
+            return tint.blended(into: base, ratio: alpha).withAlphaComponent(1)
+        }
+        self.background = surface
+        foreground = UIColor { traits in
+            Self.textColor(on: surface.resolvedColor(with: traits))
+        }
+        imageScrim = UIColor { traits in
+            let text = Self.textColor(on: surface.resolvedColor(with: traits))
+            // Bound the contrast of even an all-white/all-black photo. The
+            // gradient then blends this readable image back into the theme.
+            return text == .white ? UIColor.black.withAlphaComponent(0.58) : UIColor.white.withAlphaComponent(0.68)
+        }
+        secondaryForeground = UIColor { traits in
+            let resolved = surface.resolvedColor(with: traits)
+            let text = Self.textColor(on: resolved)
+            // Keep secondary text quieter without dropping below readable contrast.
+            for ratio in stride(from: CGFloat(0.78), through: CGFloat(0.98), by: CGFloat(0.02)) {
+                let candidate = text.blended(into: resolved, ratio: ratio)
+                if Self.contrast(candidate, resolved) >= 4.5 { return candidate }
+            }
+            return text
+        }
+    }
+
+    private static func textColor(on background: UIColor) -> UIColor {
+        contrast(.white, background) >= contrast(.black, background) ? .white : .black
+    }
+
+    private static func contrast(_ first: UIColor, _ second: UIColor) -> CGFloat {
+        let a = luminance(first)
+        let b = luminance(second)
+        return (max(a, b) + 0.05) / (min(a, b) + 0.05)
+    }
+
+    private static func luminance(_ color: UIColor) -> CGFloat {
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0
+        color.getRed(&r, green: &g, blue: &b, alpha: nil)
+        func linear(_ component: CGFloat) -> CGFloat {
+            component <= 0.04045 ? component / 12.92 : pow((component + 0.055) / 1.055, 2.4)
+        }
+        return 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b)
     }
 }
 

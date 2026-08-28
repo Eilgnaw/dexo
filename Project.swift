@@ -150,7 +150,8 @@ let project = Project(
             bundleId: "com.eilgnaw.dexoTests",
             deploymentTargets: .iOS("15.0"),
             infoPlist: .default,
-            sources: ["dexoTests/**"],
+            sources: [.glob("dexoTests/**", excluding: ["dexoTests/Fixtures/**"])],
+            resources: [.glob(pattern: "dexoTests/Fixtures/**")],
             dependencies: [
                 .target(name: "dexo"),
             ],

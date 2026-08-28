@@ -1,16 +1,6 @@
 import UIKit
 
 final class MeViewController: ObservableViewController {
-    private enum AccountRow {
-        case notifications
-        case bookmarks
-        case read
-        case following
-        case localBlocklist
-        case pushNotifications
-        case challenge
-    }
-
     private let api: DiscourseAPI
     private let viewModel: MeViewModel
     private weak var authGate: AuthGating?
@@ -18,236 +8,413 @@ final class MeViewController: ObservableViewController {
         (tabBarController as? ForumTabBarController)?.notificationPoller
     }
 
+    private let accentBackdrop = UIView()
     private let profileHeader = ProfileHeaderView()
+    private let menu = MeMenuView()
+    private let skeletonView = MeSkeletonView()
+    private let scrollView = UIScrollView()
+    private let content = UIStackView()
+    private let refreshControl = UIRefreshControl()
+    private let navigationTitleLabel = UILabel()
+    private lazy var navigationTitleContainer = UIStackView(arrangedSubviews: [navigationTitleLabel])
+    private let navigationLoadingIndicator = UIActivityIndicatorView(style: .medium)
+    private lazy var loadingBarItem = UIBarButtonItem(customView: navigationLoadingIndicator)
+    private var profileLoadTask: Task<Void, Never>?
+    private var profileLoadGeneration = 0
+    private var minimumContentHeight: NSLayoutConstraint!
+    private var skeletonTop: NSLayoutConstraint!
+    private var restingTopInset: CGFloat = 0
+    private var hasConfiguredInsets = false
+    private var isUpdatingInsets = false
+    private var isOnScreen = false
+    private var navigationProgress: CGFloat = 0
 
-    private lazy var tableView: UITableView = {
-        let tv = ThemedTableView(frame: .zero, style: .insetGrouped)
-        tv.translatesAutoresizingMaskIntoConstraints = false
-        tv.delegate = self
-        tv.dataSource = self
-        return tv
-    }()
+    override var backgroundStyle: BackgroundStyle { .grouped }
 
-    private lazy var refreshControl: UIRefreshControl = {
-        let rc = UIRefreshControl()
-        rc.addTarget(self, action: #selector(pullToRefresh), for: .valueChanged)
-        return rc
-    }()
+    override var preferredStatusBarStyle: UIStatusBarStyle {
+        let background = navigationBackdropColor
+        let foreground = ProfileHeaderPalette(accent: background, background: background)
+            .foreground.resolvedColor(with: traitCollection)
+        return foreground == .white ? .lightContent : .darkContent
+    }
 
-    private lazy var skeletonView: MeSkeletonView = {
-        let v = MeSkeletonView()
-        v.translatesAutoresizingMaskIntoConstraints = false
-        return v
-    }()
+    private var navigationBackdropColor: UIColor {
+        let palette = profileHeader.pagePalette
+        return palette.background.resolvedColor(with: traitCollection).blended(
+            into: palette.header.background.resolvedColor(with: traitCollection),
+            ratio: navigationProgress
+        )
+    }
 
-    /// Track whether the first load has completed, to show skeleton only once.
-    private var hasLoaded = false
+    private var navigationForeground: UIColor {
+        let background = navigationBackdropColor
+        return ProfileHeaderPalette(accent: background, background: background)
+            .foreground.resolvedColor(with: traitCollection)
+    }
 
-    init(api: DiscourseAPI, authGate: AuthGating? = nil) {
+    init(api: DiscourseAPI, authGate: AuthGating? = nil, viewModel: MeViewModel? = nil) {
         self.api = api
-        self.viewModel = MeViewModel(api: api)
+        self.viewModel = viewModel ?? MeViewModel(api: api)
         self.authGate = authGate
         super.init(nibName: nil, bundle: nil)
     }
 
     @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override func viewWillAppear(_ animated: Bool) {
-        super.viewWillAppear(animated)
-    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        tableView.refreshControl = refreshControl
+        title = String(localized: "tab.me")
+        navigationItem.largeTitleDisplayMode = .never
+        navigationTitleLabel.text = title
+        navigationTitleLabel.accessibilityTraits = .header
+        navigationTitleLabel.accessibilityIdentifier = "me.navigation.title"
+        navigationTitleLabel.adjustsFontSizeToFitWidth = true
+        navigationTitleLabel.minimumScaleFactor = 0.8
+        navigationItem.titleView = navigationTitleContainer
+        scrollView.alwaysBounceVertical = true
+        scrollView.contentInsetAdjustmentBehavior = .never
+        scrollView.delegate = self
+        scrollView.refreshControl = refreshControl
+        scrollView.accessibilityIdentifier = "me.scroll"
+        refreshControl.addTarget(self, action: #selector(pullToRefresh), for: .valueChanged)
+        content.axis = .vertical
+        content.addArrangedSubview(profileHeader)
+        content.addArrangedSubview(menu)
+        profileHeader.setContentHuggingPriority(.required, for: .vertical)
 
-        view.addSubview(tableView)
+        view.addSubview(accentBackdrop)
+        view.addSubview(scrollView)
+        scrollView.addSubview(content)
         view.addSubview(skeletonView)
-
+        for subview in [accentBackdrop, scrollView, content, skeletonView] {
+            subview.translatesAutoresizingMaskIntoConstraints = false
+        }
+        minimumContentHeight = content.heightAnchor.constraint(greaterThanOrEqualTo: scrollView.frameLayoutGuide.heightAnchor)
+        skeletonTop = skeletonView.topAnchor.constraint(equalTo: view.topAnchor)
         NSLayoutConstraint.activate([
-            tableView.topAnchor.constraint(equalTo: view.topAnchor),
-            tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            tableView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-
-            skeletonView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            accentBackdrop.topAnchor.constraint(equalTo: view.topAnchor),
+            accentBackdrop.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            accentBackdrop.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            accentBackdrop.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            scrollView.topAnchor.constraint(equalTo: view.topAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            content.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor),
+            content.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor),
+            content.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor),
+            content.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor),
+            content.widthAnchor.constraint(equalTo: scrollView.frameLayoutGuide.widthAnchor),
+            minimumContentHeight,
+            skeletonTop,
+            skeletonView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
             skeletonView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             skeletonView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            skeletonView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
+        skeletonView.setLoading(false)
+        navigationLoadingIndicator.accessibilityLabel = String(localized: "me.loading_profile")
 
-        profileHeader.onLoginTapped = { [weak self] in
-            self?.loginTapped()
-        }
-
-        profileHeader.onStatTapped = { [weak self] statType in
-            self?.handleStatTapped(statType)
-        }
-
-        profileHeader.onMessageTapped = { [weak self] in
-            guard let self, let authGate = self.authGate else { return }
-            authGate.requireAuth { [weak self] in
-                guard let self else { return }
-                self.notificationPoller?.clearMessages()
-                let vc = MessagesViewController(api: self.api, authGate: authGate)
-                self.navigationController?.pushViewController(vc, animated: true)
-            }
-        }
-
+        profileHeader.onStatTapped = { [weak self] in self?.handleStatTapped($0) }
+        profileHeader.onMessageTapped = { [weak self] in self?.handleAction(.messages) }
+        profileHeader.onAppearanceChanged = { [weak self] in self?.updateUI() }
+        menu.onAction = { [weak self] in self?.handleAction($0) }
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(authDidChange(_:)),
             name: .discourseAuthDidChange,
             object: nil
         )
-
-        let isLoggedIn = authGate?.isAuthenticated() ?? false
-        if isLoggedIn {
-            skeletonView.isHidden = false
-            tableView.isHidden = true
-        } else {
-            skeletonView.isHidden = true
-            hasLoaded = true
-        }
-
+        applySurfaceTheme()
         loadData()
     }
 
-    override func updateUI() {
-        // Access every observed property up front so `withPerceptionTracking`
-        // registers them regardless of which branch runs below. Without this,
-        // branches that short-circuit (e.g., the logged-out path skips the
-        // `if isLoggedIn` block) leave `currentUser`/`userProfile`/`summary`
-        // untracked, so writes after login fire no `onChange` and the UI
-        // never refreshes.
-        let isLoading = viewModel.isLoading
-        let errorMessage = viewModel.errorMessage
-        let currentUser = viewModel.currentUser
-        let userProfile = viewModel.userProfile
-        let summary = viewModel.summary
-        _ = AppSettings.shared.localBlocklistRevision
-        // The notification badge is rendered by the table view data source.
-        // Read it directly in the tracking scope so clearing the poller state
-        // reliably invalidates this screen even when reloadData() defers cells.
-        _ = notificationPoller?.hasUnreadNotifications
-
-        // Show skeleton on first load, hide once data arrives
-        if !hasLoaded, isLoading, currentUser == nil {
-            skeletonView.isHidden = false
-            tableView.isHidden = true
-            return
-        }
-        if !hasLoaded, !isLoading {
-            hasLoaded = true
-            UIView.animate(withDuration: 0.25) {
-                self.skeletonView.alpha = 0
-            } completion: { _ in
-                self.skeletonView.isHidden = true
-                self.skeletonView.removeFromSuperview()
-            }
-            tableView.isHidden = false
-        }
-
-        if let error = errorMessage {
-            let alert = UIAlertController(title: nil, message: error, preferredStyle: .alert)
-            alert.addAction(UIAlertAction(title: String(localized: "action.cancel"), style: .cancel))
-            present(alert, animated: true)
-            // Defer the reset to avoid writing an observed property
-            // inside withPerceptionTracking — that can corrupt internal state.
-            DispatchQueue.main.async { [weak self] in
-                self?.viewModel.errorMessage = nil
-            }
-            return
-        }
-
-        let isLoggedIn = authGate?.isAuthenticated() ?? false
-
-        if isLoggedIn {
-            profileHeader.configure(
-                user: currentUser,
-                userProfile: userProfile,
-                summary: summary,
-                messageAction: .inbox,
-                assetBaseURL: api.assetBaseURL
-            )
-        } else {
-            profileHeader.configure(
-                user: nil,
-                userProfile: nil,
-                summary: nil,
-                messageAction: .inbox,
-                assetBaseURL: api.assetBaseURL
-            )
-        }
-
-        layoutHeaderView()
-        tableView.reloadData()
+    override func viewWillAppear(_ animated: Bool) {
+        isOnScreen = true
+        super.viewWillAppear(animated)
+        applySurfaceTheme()
+        updateScrollPresentation(force: true)
     }
 
-    private func layoutHeaderView() {
-        tableView.tableHeaderView = profileHeader
-        profileHeader.translatesAutoresizingMaskIntoConstraints = true
-        let targetSize = CGSize(width: tableView.bounds.width, height: UIView.layoutFittingCompressedSize.height)
-        let fittingSize = profileHeader.systemLayoutSizeFitting(
-            targetSize,
-            withHorizontalFittingPriority: .required,
-            verticalFittingPriority: .fittingSizeLevel
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        updateScrollPresentation(force: true)
+    }
+
+    override func viewWillDisappear(_ animated: Bool) {
+        isOnScreen = false
+        super.viewWillDisappear(animated)
+        guard let bar = navigationController?.navigationBar else { return }
+        bar.isUserInteractionEnabled = true
+        let restore = {
+            bar.alpha = 1
+            bar.transform = .identity
+            bar.tintColor = ThemeManager.shared.accentColor
+        }
+        if let transitionCoordinator {
+            transitionCoordinator.animate(alongsideTransition: { _ in restore() })
+        } else {
+            restore()
+        }
+    }
+
+    override func updateUI() {
+        // Read all state before branching, including both badges and appearance.
+        // Otherwise an initially hidden branch can miss later Perception updates.
+        let isLoading = viewModel.isLoading || profileLoadTask != nil
+        let errorMessage = viewModel.errorMessage
+        let user = viewModel.currentUser
+        let profile = viewModel.userProfile
+        let summary = viewModel.summary
+        let unreadNotifications = notificationPoller?.hasUnreadNotifications ?? false
+        let unreadMessages = notificationPoller?.hasUnreadMessages ?? false
+        _ = AppSettings.shared.localBlocklistRevision
+        _ = ThemeManager.shared.revision
+        _ = FontManager.shared.revision
+        let isAuthenticated = authGate?.isAuthenticated() ?? false
+        let username = isAuthenticated ? AuthManager.shared.username(for: api.baseURL) : nil
+
+        profileHeader.configure(
+            user: isAuthenticated ? user : nil,
+            profile: isAuthenticated ? profile : nil,
+            summary: isAuthenticated ? summary : nil,
+            isAuthenticated: isAuthenticated,
+            fallbackUsername: username,
+            assetBaseURL: api.assetBaseURL,
+            unreadMessages: unreadMessages
         )
-        profileHeader.frame = CGRect(origin: .zero, size: fittingSize)
-        tableView.tableHeaderView = profileHeader
+        applySurfaceTheme()
+        menu.configure(
+            isAuthenticated: isAuthenticated,
+            showsFollowing: api.isLinuxDo,
+            showsChallenge: isAuthenticated && api.isLinuxDo
+                && KeychainHelper.getUserApiKey(for: api.baseURL) == AuthManager.webAuthSentinel,
+            blockedCount: AppSettings.shared.localBlockedUsers(for: api.baseURL).count,
+            unreadNotifications: unreadNotifications,
+            palette: profileHeader.pagePalette
+        )
+
+        let showsSkeleton = isAuthenticated && isLoading && user == nil
+        skeletonView.setLoading(showsSkeleton)
+        scrollView.isHidden = showsSkeleton
+        let showsRefreshIndicator = isAuthenticated && isLoading && user != nil
+        navigationItem.leftBarButtonItem = showsRefreshIndicator ? loadingBarItem : nil
+        if showsRefreshIndicator {
+            navigationLoadingIndicator.startAnimating()
+        } else {
+            navigationLoadingIndicator.stopAnimating()
+        }
+        updateScrollPresentation(force: true)
+        view.setNeedsLayout()
+
+        if let errorMessage, presentedViewController == nil {
+            let alert = UIAlertController(title: nil, message: errorMessage, preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: String(localized: "action.cancel"), style: .cancel))
+            present(alert, animated: true)
+            // Never mutate tracked state from inside the observation read scope.
+            DispatchQueue.main.async { [weak self] in self?.viewModel.errorMessage = nil }
+        }
+    }
+
+    private func applySurfaceTheme() {
+        let palette = profileHeader.pagePalette
+        view.backgroundColor = palette.background
+        accentBackdrop.backgroundColor = navigationBackdropColor
+        refreshControl.tintColor = palette.header.foreground
+        navigationLoadingIndicator.color = navigationForeground
+        skeletonView.configureTheme()
+        // Resolve against the page, not the bar's adaptive scroll-edge traits:
+        // UIKit can otherwise leave a white title on the light collapsed bar.
+        navigationTitleLabel.font = FontManager.shared.font(size: 17, weight: .semibold)
+        navigationTitleLabel.textColor = navigationForeground
+        navigationTitleLabel.sizeToFit()
+
+        applyNavigationAppearance()
+        setNeedsStatusBarAppearanceUpdate()
+        navigationController?.setNeedsStatusBarAppearanceUpdate()
+    }
+
+    private func applyNavigationAppearance() {
+        let palette = profileHeader.pagePalette
+        // Fade the surface, not the buttons supplied by the forum container.
+        let appearance = UINavigationBarAppearance()
+        appearance.configureWithTransparentBackground()
+        appearance.backgroundColor = palette.background.withAlphaComponent(navigationProgress)
+        appearance.shadowColor = .clear
+        appearance.titleTextAttributes = [.foregroundColor: navigationForeground]
+        navigationItem.standardAppearance = appearance
+        navigationItem.scrollEdgeAppearance = appearance
+        navigationItem.compactAppearance = appearance
+        navigationItem.compactScrollEdgeAppearance = appearance
+        navigationItem.rightBarButtonItems?.forEach { $0.tintColor = navigationForeground }
+    }
+
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        if traitCollection.hasDifferentColorAppearance(comparedTo: previousTraitCollection), isViewLoaded {
+            applySurfaceTheme()
+            updateScrollPresentation(force: true)
+        }
     }
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        layoutHeaderView()
+        isUpdatingInsets = true
+        let top = (view.window?.safeAreaInsets.top ?? 0) + (navigationController?.navigationBar.bounds.height ?? 44)
+        let bottom = view.safeAreaInsets.bottom
+        let distance = scrollView.contentOffset.y + restingTopInset
+        var insets = scrollView.contentInset
+        if !hasConfiguredInsets {
+            insets.top = top
+        } else {
+            // Preserve any temporary extra inset owned by UIRefreshControl.
+            insets.top += top - restingTopInset
+        }
+        insets.bottom = bottom
+        if scrollView.contentInset != insets { scrollView.contentInset = insets }
+        if !hasConfiguredInsets || top != restingTopInset {
+            scrollView.contentOffset.y = hasConfiguredInsets ? distance - top : -top
+        }
+        restingTopInset = top
+        hasConfiguredInsets = true
+        skeletonTop.constant = top
+        // Even a short list has enough scroll range to move the personal card
+        // out of the way and leave the first list row below the ordinary bar.
+        let collapseRange = max(profileHeader.avatarHeight + 1, profileHeader.bounds.height)
+        let minimum = -top - bottom + collapseRange
+        if minimumContentHeight.constant != minimum { minimumContentHeight.constant = minimum }
+        isUpdatingInsets = false
+        updateScrollPresentation()
     }
 
-    private func loadData() {
-        let isLoggedIn = authGate?.isAuthenticated() ?? false
-        if isLoggedIn {
-            Task {
-                await viewModel.reload()
-            }
+    private func updateScrollPresentation(force: Bool = false) {
+        guard !isUpdatingInsets else { return }
+        let geometry = MeHeaderScrollGeometry(
+            contentOffsetY: scrollView.contentOffset.y, topInset: restingTopInset,
+            avatarHeight: profileHeader.avatarHeight
+        )
+        profileHeader.updateBackdrop(topInset: restingTopInset, pullDistance: geometry.pullDistance)
+        let progress = skeletonView.isHidden ? geometry.navigationProgress : 0
+        profileHeader.setLoading(false) // The navigation loading indicator is now always visible.
+        scrollView.verticalScrollIndicatorInsets = UIEdgeInsets(
+            top: restingTopInset,
+            left: 0, bottom: view.safeAreaInsets.bottom, right: 0
+        )
+        guard isOnScreen, navigationController?.topViewController === self,
+              let bar = navigationController?.navigationBar else { return }
+        // UIKit may reset bar visibility while rebuilding its appearance.
+        let needsAppearance = force || progress != navigationProgress
+        guard needsAppearance || bar.alpha != 1 || navigationTitleLabel.alpha != progress
+                || bar.transform != .identity else { return }
+        let previousStatusBarStyle = preferredStatusBarStyle
+        navigationProgress = progress
+        if needsAppearance { applyNavigationAppearance() }
+        bar.isUserInteractionEnabled = true
+        // Apply the finger's current progress directly. Queuing a timed animation
+        // on every scroll event would make the bar lag behind or jump on reversal.
+        UIView.performWithoutAnimation {
+            bar.alpha = 1
+            bar.transform = .identity
+            bar.tintColor = navigationForeground
+            navigationTitleLabel.textColor = navigationForeground
+            navigationTitleLabel.alpha = progress
+            navigationLoadingIndicator.color = navigationForeground
+            accentBackdrop.backgroundColor = navigationBackdropColor
         }
+        if force || preferredStatusBarStyle != previousStatusBarStyle {
+            setNeedsStatusBarAppearanceUpdate()
+            navigationController?.setNeedsStatusBarAppearanceUpdate()
+        }
+    }
+
+    private func loadData(forceRefresh: Bool = false) {
+        guard authGate?.isAuthenticated() == true, profileLoadTask == nil, !viewModel.isLoading else { return }
+        profileLoadGeneration += 1
+        let generation = profileLoadGeneration
+        let model = viewModel
+        profileLoadTask = Task { [weak self] in
+            if forceRefresh {
+                await model.reload()
+            } else {
+                await model.loadProfile()
+            }
+            guard let self, self.profileLoadGeneration == generation else { return }
+            self.profileLoadTask = nil
+            self.refreshControl.endRefreshing()
+            self.updateUI()
+        }
+        // Show feedback before the async request gets its first main-actor turn.
+        updateUI()
     }
 
     @objc private func authDidChange(_ notification: Notification) {
-        let changedBaseURL = (notification.userInfo?["baseURL"] as? String)?
+        let changedURL = (notification.userInfo?["baseURL"] as? String)?
             .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        let currentBaseURL = api.baseURL.trimmingCharacters(
-            in: CharacterSet(charactersIn: "/")
-        )
-        guard changedBaseURL == currentBaseURL else { return }
-
+        guard changedURL == api.baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/")) else { return }
+        scrollView.setContentOffset(CGPoint(x: 0, y: -restingTopInset), animated: false)
         if authGate?.isAuthenticated() == true {
-            loadData()
+            loadData(forceRefresh: true)
         } else {
+            profileLoadGeneration += 1
+            profileLoadTask?.cancel()
+            profileLoadTask = nil
             viewModel.clearCachedProfile()
             viewModel.requiresLogin = true
-            hasLoaded = true
+            refreshControl.endRefreshing()
         }
+        updateUI()
     }
 
     @objc private func pullToRefresh() {
-        Task {
-            await viewModel.reload()
+        guard authGate?.isAuthenticated() == true else {
             refreshControl.endRefreshing()
+            return
+        }
+        loadData(forceRefresh: true)
+    }
+
+    private func handleAction(_ action: MeMenuView.Action) {
+        switch action {
+        case .login:
+            authGate?.requireAuth { [weak self] in self?.loadData(forceRefresh: true) }
+        case .logout:
+            logoutTapped()
+        default:
+            authGate?.requireAuth { [weak self] in self?.openDestination(action) }
         }
     }
 
-    private func presentChallenge() {
-        ChallengeViewController.present(from: self)
-    }
-
-    private func loginTapped() {
-        authGate?.requireAuth { [weak self] in
-            guard let self else { return }
-            Task {
-                await self.viewModel.reload()
-            }
+    private func openDestination(_ action: MeMenuView.Action) {
+        let username = viewModel.currentUser?.username ?? AuthManager.shared.username(for: api.baseURL)
+        let destination: UIViewController
+        switch action {
+        case .messages:
+            guard let authGate else { return }
+            notificationPoller?.clearMessages()
+            destination = MessagesViewController(api: api, authGate: authGate)
+        case .notifications:
+            notificationPoller?.clearNotifications()
+            destination = NotificationsViewController(api: api, authGate: authGate)
+        case .bookmarks:
+            guard let username else { return }
+            destination = BookmarksViewController(api: api, username: username)
+        case .read:
+            destination = ReadTopicsViewController(api: api)
+        case .following:
+            guard let username else { return }
+            destination = FollowedUsersViewController(api: api, currentUsername: username)
+        case .localBlocklist:
+            destination = LocalBlocklistViewController(baseURL: api.baseURL)
+        case .pushNotifications:
+            guard let username else { return }
+            destination = PushNotificationSettingsViewController(api: api, username: username)
+        case .challenge:
+            ChallengeViewController.present(from: self)
+            return
+        case .login, .logout:
+            return
         }
+        navigationController?.pushViewController(destination, animated: true)
     }
 
     private func logoutTapped() {
@@ -257,192 +424,28 @@ final class MeViewController: ObservableViewController {
             preferredStyle: .alert
         )
         alert.addAction(UIAlertAction(title: String(localized: "me.logout"), style: .destructive) { [weak self] _ in
-            guard let self else { return }
-            self.authGate?.performLogout()
+            self?.authGate?.performLogout()
         })
         alert.addAction(UIAlertAction(title: String(localized: "cancel"), style: .cancel))
         present(alert, animated: true)
     }
 
-    // MARK: - Stat Taps
-
-    private func handleStatTapped(_ statType: ProfileHeaderView.StatType) {
+    private func handleStatTapped(_ stat: ProfileHeaderView.StatType) {
         guard let username = viewModel.currentUser?.username else { return }
-        switch statType {
+        switch stat {
         case .topics:
-            let vc = UserPostsViewController(api: api, username: username, filter: .topics)
-            navigationController?.pushViewController(vc, animated: true)
+            navigationController?.pushViewController(UserPostsViewController(api: api, username: username, filter: .topics), animated: true)
         case .posts:
-            let vc = UserPostsViewController(api: api, username: username, filter: .posts)
-            navigationController?.pushViewController(vc, animated: true)
+            navigationController?.pushViewController(UserPostsViewController(api: api, username: username, filter: .posts), animated: true)
         case .likes, .days:
             break
         }
     }
+
 }
 
-// MARK: - UITableViewDataSource
-
-extension MeViewController: UITableViewDataSource {
-    func numberOfSections(in tableView: UITableView) -> Int {
-        2
-    }
-
-    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        switch section {
-        case 0:
-            return accountRows.count
-        case 1:
-            return 1
-        default:
-            return 0
-        }
-    }
-
-    private var showChallengeRow: Bool {
-        guard api.isLinuxDo else { return false }
-        return KeychainHelper.getUserApiKey(for: api.baseURL) == AuthManager.webAuthSentinel
-    }
-
-    private var accountRows: [AccountRow] {
-        guard authGate?.isAuthenticated() == true else { return [] }
-        var rows: [AccountRow] = [.notifications, .bookmarks, .read]
-        if api.isLinuxDo {
-            rows.append(.following)
-        }
-        rows.append(.localBlocklist)
-        rows.append(.pushNotifications)
-        if showChallengeRow {
-            rows.append(.challenge)
-        }
-        return rows
-    }
-
-    func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        switch indexPath.section {
-        case 0:
-            let cell = UITableViewCell()
-            let row = accountRows[indexPath.row]
-            var content: UIListContentConfiguration
-            if case .localBlocklist = row {
-                content = .valueCell()
-            } else {
-                content = cell.defaultContentConfiguration()
-            }
-            var showDot = false
-            switch row {
-            case .notifications:
-                content.image = UIImage(systemName: "bell")
-                content.text = String(localized: "me.notifications")
-                showDot = notificationPoller?.hasUnreadNotifications ?? false
-            case .bookmarks:
-                content.image = UIImage(systemName: "bookmark")
-                content.text = String(localized: "me.bookmarks")
-            case .read:
-                content.image = UIImage(systemName: "checkmark.circle")
-                content.text = String(localized: "me.read")
-            case .following:
-                content.image = UIImage(systemName: "person.2")
-                content.text = String(localized: "me.following")
-            case .localBlocklist:
-                content.image = UIImage(systemName: "person.crop.circle.badge.xmark")
-                content.text = String(localized: "me.local_blocklist")
-                let count = AppSettings.shared.localBlockedUsers(for: api.baseURL).count
-                content.secondaryText = String(localized: "me.local_blocklist.count \(count)")
-            case .pushNotifications:
-                content.image = UIImage(systemName: "bell.badge")
-                content.text = String(localized: "push.settings.title")
-            case .challenge:
-                content.image = UIImage(systemName: "shield")
-                content.text = String(localized: "me.challenge")
-            }
-            content.imageProperties.tintColor = ThemeManager.shared.accentColor
-            content.imageProperties.preferredSymbolConfiguration = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
-            cell.contentConfiguration = content
-            cell.accessoryType = .disclosureIndicator
-
-            if showDot {
-                let dot = UIView(frame: CGRect(x: 0, y: 0, width: 10, height: 10))
-                dot.backgroundColor = .systemRed
-                dot.layer.cornerRadius = 5
-                cell.accessoryView = dot
-            }
-
-            return cell
-
-        case 1:
-            let cell = UITableViewCell()
-            let isLoggedIn = authGate?.isAuthenticated() ?? false
-            if isLoggedIn {
-                cell.textLabel?.text = String(localized: "me.logout")
-                cell.textLabel?.textColor = .systemRed
-            } else {
-                cell.textLabel?.text = String(localized: "me.login")
-                cell.textLabel?.textColor = .tintColor
-            }
-            cell.textLabel?.textAlignment = .center
-            return cell
-
-        default:
-            return UITableViewCell()
-        }
-    }
-}
-
-// MARK: - UITableViewDelegate
-
-extension MeViewController: UITableViewDelegate {
-    func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-        tableView.deselectRow(at: indexPath, animated: true)
-
-        switch indexPath.section {
-        case 0:
-            guard accountRows.indices.contains(indexPath.row) else { return }
-            switch accountRows[indexPath.row] {
-            case .notifications:
-                notificationPoller?.clearNotifications()
-                tableView.reloadRows(at: [indexPath], with: .none)
-                let vc = NotificationsViewController(api: api, authGate: authGate)
-                navigationController?.pushViewController(vc, animated: true)
-            case .bookmarks:
-                guard let username = viewModel.currentUser?.username else { return }
-                let vc = BookmarksViewController(api: api, username: username)
-                navigationController?.pushViewController(vc, animated: true)
-            case .read:
-                let vc = ReadTopicsViewController(api: api)
-                navigationController?.pushViewController(vc, animated: true)
-            case .following:
-                guard let username = viewModel.currentUser?.username
-                    ?? AuthManager.shared.username(for: api.baseURL)
-                else { return }
-                navigationController?.pushViewController(
-                    FollowedUsersViewController(api: api, currentUsername: username),
-                    animated: true
-                )
-            case .localBlocklist:
-                navigationController?.pushViewController(
-                    LocalBlocklistViewController(baseURL: api.baseURL),
-                    animated: true
-                )
-            case .pushNotifications:
-                guard let username = viewModel.currentUser?.username else { return }
-                let viewController = PushNotificationSettingsViewController(
-                    api: api,
-                    username: username
-                )
-                navigationController?.pushViewController(viewController, animated: true)
-            case .challenge:
-                presentChallenge()
-            }
-        case 1:
-            let isLoggedIn = authGate?.isAuthenticated() ?? false
-            if isLoggedIn {
-                logoutTapped()
-            } else {
-                loginTapped()
-            }
-        default:
-            break
-        }
+extension MeViewController: UIScrollViewDelegate {
+    func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        updateScrollPresentation()
     }
 }

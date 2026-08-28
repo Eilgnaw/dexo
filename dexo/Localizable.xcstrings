@@ -2697,6 +2697,22 @@
         }
       }
     },
+    "me.guest.title" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Welcome to Dexo"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "欢迎使用 Dexo"
+          }
+        }
+      }
+    },
     "me.joined_date %@" : {
       "localizations" : {
         "en" : {
@@ -2709,6 +2725,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "加入于 %@"
+          }
+        }
+      }
+    },
+    "me.loading_profile" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Loading profile…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在加载个人资料…"
           }
         }
       }
@@ -2905,6 +2937,62 @@
         }
       }
     },
+    "me.section.preferences" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Preferences & Security"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "偏好与安全"
+          }
+        }
+      }
+    },
+    "me.section.reading" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bookmarks & Reading"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "收藏与阅读"
+          }
+        }
+      }
+    },
+    "me.stats.compact.billions %@" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "%@B" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "%@B" } }
+      }
+    },
+    "me.stats.compact.millions %@" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "%@M" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "%@M" } }
+      }
+    },
+    "me.stats.compact.thousands %@" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "%@k" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "%@k" } }
+      }
+    },
+    "me.stats.compact.trillions %@" : {
+      "localizations" : {
+        "en" : { "stringUnit" : { "state" : "translated", "value" : "%@T" } },
+        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "%@T" } }
+      }
+    },
     "me.stats.days" : {
       "localizations" : {
         "en" : {
@@ -2965,6 +3053,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "话题"
+          }
+        }
+      }
+    },
+    "me.unread" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unread"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "未读"
           }
         }
       }

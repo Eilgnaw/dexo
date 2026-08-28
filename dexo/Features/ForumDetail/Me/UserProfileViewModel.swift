@@ -2,6 +2,17 @@ import Foundation
 
 import Perception
 
+protocol UserProfileAPIClient: AnyObject {
+    var baseURL: String { get }
+    var isLinuxDo: Bool { get }
+    func fetchUserProfile(username: String) async throws -> DiscourseUserProfile
+    func fetchUserSummary(username: String) async throws -> DiscourseUserSummary
+    func followUser(username: String) async throws
+    func unfollowUser(username: String) async throws
+}
+
+extension DiscourseAPI: UserProfileAPIClient {}
+
 @Perceptible
 final class UserProfileViewModel {
     enum LocalBlockToggleResult: Equatable {
@@ -17,13 +28,13 @@ final class UserProfileViewModel {
     var isFollowing = false
     var errorMessage: String?
 
-    private let api: DiscourseAPI
+    private let api: any UserProfileAPIClient
+    private let currentUsername: () -> String?
     let username: String
 
     /// Whether the current user is viewing their own profile.
     var isOwnProfile: Bool {
-        let myUsername = AuthManager.shared.username(for: api.baseURL)
-        return myUsername == username
+        currentUsername()?.caseInsensitiveCompare(username) == .orderedSame
     }
 
     var canSendMessage: Bool {
@@ -50,24 +61,33 @@ final class UserProfileViewModel {
         )
     }
 
-    init(api: DiscourseAPI, username: String) {
+    init(api: any UserProfileAPIClient, username: String, currentUsername: (() -> String?)? = nil) {
         self.api = api
         self.username = username
+        let baseURL = api.baseURL
+        self.currentUsername = currentUsername ?? { AuthManager.shared.username(for: baseURL) }
     }
 
     func load() async {
+        guard !isLoading else { return }
         isLoading = true
         errorMessage = nil
+        defer { isLoading = false }
         do {
-            let profile = try await api.fetchUserProfile(username: username)
-            let userSummary = try? await api.fetchUserSummary(username: username)
+            async let profileRequest = api.fetchUserProfile(username: username)
+            async let summaryRequest = api.fetchUserSummary(username: username)
+            let profile = try await profileRequest
+            guard !Task.isCancelled else { return }
+            // Publish identity/background immediately; optional statistics may be slower.
             userProfile = profile
-            summary = userSummary
             isFollowing = profile.isFollowed == true
+            let userSummary = try? await summaryRequest
+            guard !Task.isCancelled else { return }
+            summary = userSummary
         } catch {
+            guard !Task.isCancelled else { return }
             errorMessage = error.localizedDescription
         }
-        isLoading = false
     }
 
     func toggleFollow() async throws {

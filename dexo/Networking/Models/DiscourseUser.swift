@@ -47,6 +47,7 @@ struct DiscourseUserProfile: Codable {
     let username: String
     let name: String?
     let avatarTemplate: String?
+    let cardBackgroundUploadUrl: String?
     let title: String?
     let trustLevel: Int?
     let badgeCount: Int?
@@ -63,6 +64,7 @@ struct DiscourseUserProfile: Codable {
     enum CodingKeys: String, CodingKey {
         case id, username, name, title
         case avatarTemplate = "avatar_template"
+        case cardBackgroundUploadUrl = "card_background_upload_url"
         case trustLevel = "trust_level"
         case badgeCount = "badge_count"
         case profileViewCount = "profile_view_count"
@@ -74,5 +76,16 @@ struct DiscourseUserProfile: Codable {
         case canSendPrivateMessageToUser = "can_send_private_message_to_user"
         case canFollow = "can_follow"
         case isFollowed = "is_followed"
+    }
+
+    /// Discourse returns upload URLs as absolute, protocol-relative, or site-relative paths.
+    func cardBackgroundURL(relativeTo assetBaseURL: String) -> URL? {
+        guard let path = cardBackgroundUploadUrl?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !path.isEmpty,
+              let base = URL(string: assetBaseURL.hasSuffix("/") ? assetBaseURL : assetBaseURL + "/"),
+              let url = URL(string: path, relativeTo: base)?.absoluteURL,
+              let scheme = url.scheme?.lowercased(), ["https", "http"].contains(scheme),
+              url.host != nil, url.user == nil, url.password == nil else { return nil }
+        return url
     }
 }

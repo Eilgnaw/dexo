@@ -1,6 +1,8 @@
 import UIKit
 
 final class ForumTabBarController: UITabBarController, UITabBarControllerDelegate {
+    override var childForStatusBarStyle: UIViewController? { selectedViewController }
+
     private let api: DiscourseAPI
     private weak var authGate: AuthGating?
     private(set) var navigationControllers: [UINavigationController] = []
@@ -25,15 +27,15 @@ final class ForumTabBarController: UITabBarController, UITabBarControllerDelegat
         }
 
         let homeVC = HomeViewController(api: api, authGate: authGate)
-        let homeNav = UINavigationController(rootViewController: homeVC)
+        let homeNav = ForumNavigationController(rootViewController: homeVC)
         homeNav.tabBarItem = UITabBarItem(title: String(localized: "tab.home"), image: UIImage(systemName: "house"), tag: 0)
 
         let meVC = MeViewController(api: api, authGate: authGate)
-        let meNav = UINavigationController(rootViewController: meVC)
+        let meNav = ForumNavigationController(rootViewController: meVC)
         meNav.tabBarItem = UITabBarItem(title: String(localized: "tab.me"), image: UIImage(systemName: "person"), tag: 1)
 
         let searchVC = SearchViewController(api: api)
-        let searchNav = UINavigationController(rootViewController: searchVC)
+        let searchNav = ForumNavigationController(rootViewController: searchVC)
         searchNav.tabBarItem = UITabBarItem(title: String(localized: "search.title"), image: UIImage(systemName: "magnifyingglass"), tag: 2)
 
         navigationControllers = [homeNav, meNav, searchNav]
@@ -77,4 +79,10 @@ final class ForumTabBarController: UITabBarController, UITabBarControllerDelegat
         homeVC.scrollToTopOrRefresh()
         return true
     }
+}
+
+/// Profile status bars follow the contrast of their image or accent header.
+/// Pushed screens still supply their own (normally default) status-bar style.
+private final class ForumNavigationController: UINavigationController {
+    override var childForStatusBarStyle: UIViewController? { topViewController }
 }

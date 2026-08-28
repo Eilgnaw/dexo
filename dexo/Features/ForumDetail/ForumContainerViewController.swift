@@ -3,6 +3,8 @@ import Perception
 import UIKit
 
 final class ForumContainerViewController: BaseViewController, AuthGating {
+    override var childForStatusBarStyle: UIViewController? { children.first }
+
     private struct PendingPushDestination {
         let topicID: Int
         let floor: Int?

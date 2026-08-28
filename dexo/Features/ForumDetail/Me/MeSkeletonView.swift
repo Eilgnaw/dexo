@@ -1,131 +1,162 @@
 import UIKit
 
-/// Skeleton placeholder shown while the Me profile is loading.
-/// Mimics the layout of ProfileHeaderView + 2 table rows.
+/// A quiet loading placeholder matching the personal center's two-part layout.
 final class MeSkeletonView: UIView {
-    private var shimmers: [ShimmerView] = []
+    private let header = UIView()
+    private let sheet = UIView()
+    private let activityIndicator = UIActivityIndicatorView(style: .medium)
+    private let loadingLabel = UILabel()
+    private var headerMarks: [UIView] = []
+    private var sheetMarks: [UIView] = []
+    private var cards: [UIView] = []
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        setup()
+        accessibilityIdentifier = "me.loading"
+        setupLayout()
+        setLoading(false)
     }
 
     @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError() }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    private func makeShimmer(height: CGFloat, width: CGFloat? = nil, radius: CGFloat = 4) -> ShimmerView {
-        let v = ShimmerView()
-        v.translatesAutoresizingMaskIntoConstraints = false
-        v.layer.cornerRadius = radius
-        v.clipsToBounds = true
-        var constraints = [v.heightAnchor.constraint(equalToConstant: height)]
-        if let width { constraints.append(v.widthAnchor.constraint(equalToConstant: width)) }
-        NSLayoutConstraint.activate(constraints)
-        shimmers.append(v)
-        return v
+    private func mark(width: CGFloat? = nil, height: CGFloat, onHeader: Bool = false) -> UIView {
+        let view = UIView()
+        view.translatesAutoresizingMaskIntoConstraints = false
+        view.layer.cornerRadius = min(height / 2, 6)
+        view.heightAnchor.constraint(equalToConstant: height).isActive = true
+        if let width { view.widthAnchor.constraint(equalToConstant: width).isActive = true }
+        if onHeader { headerMarks.append(view) } else { sheetMarks.append(view) }
+        return view
     }
 
-    private func setup() {
-        // --- Header area ---
-        let avatar = makeShimmer(height: 68, width: 68, radius: 34)
-        let nameLine = makeShimmer(height: 16)
-        let usernameLine = makeShimmer(height: 12)
-
-        let nameStack = UIStackView(arrangedSubviews: [nameLine, usernameLine])
-        nameStack.axis = .vertical
-        nameStack.spacing = 6
-
-        let avatarRow = UIStackView(arrangedSubviews: [avatar, nameStack])
-        avatarRow.axis = .horizontal
-        avatarRow.alignment = .center
-        avatarRow.spacing = 12
-
-        // Stats row: 4 blocks
-        let statsRow = UIStackView()
-        statsRow.axis = .horizontal
-        statsRow.distribution = .fillEqually
-        statsRow.spacing = 8
-        for _ in 0..<4 {
-            let block = UIStackView(arrangedSubviews: [
-                makeShimmer(height: 20, width: 32),
-                makeShimmer(height: 10, width: 40),
-            ])
-            block.axis = .vertical
-            block.alignment = .center
-            block.spacing = 4
-            statsRow.addArrangedSubview(block)
-        }
-
-        let headerStack = UIStackView(arrangedSubviews: [avatarRow, statsRow])
-        headerStack.axis = .vertical
-        headerStack.spacing = 20
-        headerStack.translatesAutoresizingMaskIntoConstraints = false
-
-        addSubview(headerStack)
-
-        // --- Table row placeholders ---
-        let rowsStack = UIStackView()
-        rowsStack.axis = .vertical
-        rowsStack.spacing = 0
-        rowsStack.translatesAutoresizingMaskIntoConstraints = false
-
-        for i in 0..<2 {
-            let icon = makeShimmer(height: 16, width: 16, radius: 4)
-            let label = makeShimmer(height: 14)
-            let row = UIStackView(arrangedSubviews: [icon, label])
-            row.axis = .horizontal
-            row.alignment = .center
-            row.spacing = 12
-
-            let rowContainer = UIView()
-            rowContainer.translatesAutoresizingMaskIntoConstraints = false
-            row.translatesAutoresizingMaskIntoConstraints = false
-            rowContainer.addSubview(row)
-            NSLayoutConstraint.activate([
-                row.leadingAnchor.constraint(equalTo: rowContainer.leadingAnchor, constant: 20),
-                row.trailingAnchor.constraint(equalTo: rowContainer.trailingAnchor, constant: -20),
-                row.topAnchor.constraint(equalTo: rowContainer.topAnchor, constant: 14),
-                row.bottomAnchor.constraint(equalTo: rowContainer.bottomAnchor, constant: -14),
-            ])
-
-            if i < 1 {
-                let sep = UIView()
-                sep.backgroundColor = .separator
-                sep.translatesAutoresizingMaskIntoConstraints = false
-                rowContainer.addSubview(sep)
-                NSLayoutConstraint.activate([
-                    sep.leadingAnchor.constraint(equalTo: rowContainer.leadingAnchor, constant: 52),
-                    sep.trailingAnchor.constraint(equalTo: rowContainer.trailingAnchor),
-                    sep.bottomAnchor.constraint(equalTo: rowContainer.bottomAnchor),
-                    sep.heightAnchor.constraint(equalToConstant: 1.0 / UIScreen.main.scale),
-                ])
-            }
-
-            rowsStack.addArrangedSubview(rowContainer)
-        }
-
-        let rowsCard = UIView()
-        rowsCard.backgroundColor = ThemeManager.shared.cardBackgroundColor
-        rowsCard.layer.cornerRadius = 10
-        rowsCard.clipsToBounds = true
-        rowsCard.translatesAutoresizingMaskIntoConstraints = false
-        rowsCard.addSubview(rowsStack)
-
-        addSubview(rowsCard)
-
-        NSLayoutConstraint.activate([
-            headerStack.topAnchor.constraint(equalTo: topAnchor, constant: 24),
-            headerStack.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor, constant: 32),
-            headerStack.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -32),
-
-            rowsCard.topAnchor.constraint(equalTo: headerStack.bottomAnchor, constant: 28),
-            rowsCard.leadingAnchor.constraint(equalTo: safeAreaLayoutGuide.leadingAnchor, constant: 20),
-            rowsCard.trailingAnchor.constraint(equalTo: safeAreaLayoutGuide.trailingAnchor, constant: -20),
-
-            rowsStack.topAnchor.constraint(equalTo: rowsCard.topAnchor),
-            rowsStack.leadingAnchor.constraint(equalTo: rowsCard.leadingAnchor),
-            rowsStack.trailingAnchor.constraint(equalTo: rowsCard.trailingAnchor),
-            rowsStack.bottomAnchor.constraint(equalTo: rowsCard.bottomAnchor),
+    private func setupLayout() {
+        let avatar = mark(width: 64, height: 64, onHeader: true)
+        avatar.layer.cornerRadius = 32
+        let names = UIStackView(arrangedSubviews: [
+            mark(width: 112, height: 26, onHeader: true),
+            mark(width: 80, height: 16, onHeader: true),
+            mark(width: 120, height: 12, onHeader: true),
         ])
+        names.axis = .vertical
+        names.alignment = .leading
+        names.distribution = .equalSpacing
+        let message = mark(width: 44, height: 44, onHeader: true)
+        message.layer.cornerRadius = 22
+        let identity = UIStackView(arrangedSubviews: [avatar, names, message])
+        names.heightAnchor.constraint(equalTo: avatar.heightAnchor).isActive = true
+        identity.alignment = .center
+        identity.spacing = 16
+        let stats = UIStackView()
+        stats.distribution = .fillEqually
+        stats.spacing = 16
+        for _ in 0..<4 {
+            let stat = UIStackView(arrangedSubviews: [
+                mark(width: 36, height: 22, onHeader: true),
+                mark(width: 42, height: 10, onHeader: true),
+            ])
+            stat.axis = .vertical
+            stat.alignment = .center
+            stat.spacing = 8
+            stats.addArrangedSubview(stat)
+        }
+        let headerContent = UIStackView(arrangedSubviews: [identity, stats])
+        headerContent.axis = .vertical
+        headerContent.spacing = 12
+        headerContent.translatesAutoresizingMaskIntoConstraints = false
+        header.addSubview(headerContent)
+
+        let sheetContent = UIStackView()
+        sheetContent.axis = .vertical
+        sheetContent.spacing = 20
+        loadingLabel.text = String(localized: "me.loading_profile")
+        loadingLabel.numberOfLines = 0
+        loadingLabel.textAlignment = .center
+        loadingLabel.accessibilityTraits = .updatesFrequently
+        activityIndicator.isAccessibilityElement = false
+        let loadingRow = UIStackView(arrangedSubviews: [activityIndicator, loadingLabel])
+        loadingRow.alignment = .center
+        loadingRow.spacing = 10
+        loadingRow.translatesAutoresizingMaskIntoConstraints = false
+        let loadingContainer = UIView()
+        loadingContainer.addSubview(loadingRow)
+        NSLayoutConstraint.activate([
+            loadingRow.centerXAnchor.constraint(equalTo: loadingContainer.centerXAnchor),
+            loadingRow.leadingAnchor.constraint(greaterThanOrEqualTo: loadingContainer.leadingAnchor),
+            loadingRow.trailingAnchor.constraint(lessThanOrEqualTo: loadingContainer.trailingAnchor),
+            loadingRow.topAnchor.constraint(equalTo: loadingContainer.topAnchor, constant: 8),
+            loadingRow.bottomAnchor.constraint(equalTo: loadingContainer.bottomAnchor, constant: -8),
+            loadingContainer.heightAnchor.constraint(greaterThanOrEqualToConstant: 44),
+        ])
+        sheetContent.addArrangedSubview(loadingContainer)
+        accessibilityElements = [loadingLabel]
+        for count in [1, 2, 3] {
+            let rows = UIStackView()
+            rows.axis = .vertical
+            for _ in 0..<count {
+                let row = UIStackView(arrangedSubviews: [
+                    mark(width: 18, height: 18), mark(height: 14),
+                ])
+                row.alignment = .center
+                row.spacing = 16
+                row.isLayoutMarginsRelativeArrangement = true
+                row.layoutMargins = UIEdgeInsets(top: 19, left: 16, bottom: 19, right: 32)
+                rows.addArrangedSubview(row)
+            }
+            rows.layer.cornerRadius = 16
+            rows.clipsToBounds = true
+            cards.append(rows)
+            sheetContent.addArrangedSubview(rows)
+        }
+        sheetContent.translatesAutoresizingMaskIntoConstraints = false
+        sheet.addSubview(sheetContent)
+        sheet.layer.cornerRadius = 28
+        sheet.layer.cornerCurve = .continuous
+        sheet.layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
+        sheet.clipsToBounds = true
+
+        for surface in [header, sheet] {
+            surface.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(surface)
+        }
+        NSLayoutConstraint.activate([
+            header.topAnchor.constraint(equalTo: topAnchor),
+            header.leadingAnchor.constraint(equalTo: leadingAnchor),
+            header.trailingAnchor.constraint(equalTo: trailingAnchor),
+            headerContent.topAnchor.constraint(equalTo: header.topAnchor, constant: 18),
+            headerContent.leadingAnchor.constraint(equalTo: header.safeAreaLayoutGuide.leadingAnchor, constant: 24),
+            headerContent.trailingAnchor.constraint(equalTo: header.safeAreaLayoutGuide.trailingAnchor, constant: -24),
+            headerContent.bottomAnchor.constraint(equalTo: header.bottomAnchor, constant: -30),
+            sheet.topAnchor.constraint(equalTo: header.bottomAnchor),
+            sheet.leadingAnchor.constraint(equalTo: leadingAnchor),
+            sheet.trailingAnchor.constraint(equalTo: trailingAnchor),
+            sheet.bottomAnchor.constraint(equalTo: bottomAnchor),
+            sheetContent.topAnchor.constraint(equalTo: sheet.topAnchor, constant: 16),
+            sheetContent.leadingAnchor.constraint(equalTo: sheet.safeAreaLayoutGuide.leadingAnchor, constant: 20),
+            sheetContent.trailingAnchor.constraint(equalTo: sheet.safeAreaLayoutGuide.trailingAnchor, constant: -20),
+        ])
+    }
+
+    func configureTheme() {
+        let theme = ThemeManager.shared
+        let palette = theme.profileHeaderPalette
+        backgroundColor = palette.background
+        header.backgroundColor = palette.background
+        sheet.backgroundColor = theme.backgroundColor
+        headerMarks.forEach { $0.backgroundColor = palette.foreground.withAlphaComponent(0.18) }
+        sheetMarks.forEach { $0.backgroundColor = theme.accentColor.withAlphaComponent(0.12) }
+        cards.forEach { $0.backgroundColor = theme.cardBackgroundColor }
+        activityIndicator.color = theme.accentColor
+        loadingLabel.font = FontManager.shared.font(size: 15)
+        loadingLabel.textColor = .secondaryLabel
+    }
+
+    func setLoading(_ loading: Bool) {
+        isHidden = !loading
+        if loading {
+            activityIndicator.startAnimating()
+        } else {
+            activityIndicator.stopAnimating()
+        }
     }
 }
