@@ -141,6 +141,7 @@ final class RepliesViewController: BaseViewController {
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        api.resumeTopicTimingUploads()
         resumeReadTracking()
         startReadFlushTimer()
         scheduleDebouncedReadFlush()
@@ -149,11 +150,14 @@ final class RepliesViewController: BaseViewController {
     @objc private func appDidEnterBackground() {
         cancelPendingReadFlush()
         stopReadFlushTimer()
-        flushReadTimings()
+        api.suspendTopicTimingUploads()
         readTracker.pause()
+        flushReadTimings()
     }
 
     @objc private func appWillEnterForeground() {
+        guard viewIfLoaded?.window != nil else { return }
+        api.resumeTopicTimingUploads()
         resumeReadTracking()
         startReadFlushTimer()
         scheduleDebouncedReadFlush()
@@ -202,15 +206,11 @@ final class RepliesViewController: BaseViewController {
         let snap = readTracker.snapshotDelta()
         debugLog("[ReadTracker] replies topic=\(topicId) flush topic_time=\(snap.topicTime) posts=\(snap.timings.count)")
         guard !snap.timings.isEmpty else { return }
-        let topicId = self.topicId
-        let api = self.api
-        Task.detached {
-            try? await api.postTopicTimings(
-                topicId: topicId,
-                topicTime: snap.topicTime,
-                timings: snap.timings
-            )
-        }
+        api.enqueueTopicTimings(
+            topicId: topicId,
+            topicTime: snap.topicTime,
+            timings: snap.timings
+        )
     }
 
     // MARK: - Data Loading
@@ -294,8 +294,8 @@ extension RepliesViewController {
         super.viewWillDisappear(animated)
         cancelPendingReadFlush()
         stopReadFlushTimer()
-        flushReadTimings()
         readTracker.pause()
+        flushReadTimings()
     }
 }
 

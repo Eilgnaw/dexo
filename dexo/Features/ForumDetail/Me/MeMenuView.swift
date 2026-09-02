@@ -6,6 +6,7 @@ final class MeMenuView: ProfileMenuSheetView {
         case messages, notifications, following, bookmarks, read
         case localBlocklist = "local_blocklist"
         case pushNotifications = "push_notifications"
+        case readTimings = "read_timings"
         case challenge, login, logout
 
         var title: String {
@@ -17,6 +18,7 @@ final class MeMenuView: ProfileMenuSheetView {
             case .read: return String(localized: "me.read")
             case .localBlocklist: return String(localized: "me.local_blocklist")
             case .pushNotifications: return String(localized: "push.settings.title")
+            case .readTimings: return String(localized: "settings.read_timings.linux_do.title")
             case .challenge: return String(localized: "me.challenge")
             case .login: return String(localized: "me.login")
             case .logout: return String(localized: "me.logout")
@@ -32,6 +34,7 @@ final class MeMenuView: ProfileMenuSheetView {
             case .read: return "checkmark.circle"
             case .localBlocklist: return "person.crop.circle.badge.xmark"
             case .pushNotifications: return "bell.badge"
+            case .readTimings: return "clock"
             case .challenge: return "shield"
             case .login, .logout: return "person.crop.circle"
             }
@@ -56,7 +59,7 @@ final class MeMenuView: ProfileMenuSheetView {
         )
         let preferences = makeSection(
             title: String(localized: "me.section.preferences"),
-            actions: [.localBlocklist, .pushNotifications, .challenge]
+            actions: [.localBlocklist, .pushNotifications, .readTimings, .challenge]
         )
         accountSections = [community, reading, preferences]
         accountSections.forEach { content.addArrangedSubview($0) }
@@ -101,6 +104,8 @@ final class MeMenuView: ProfileMenuSheetView {
         isAuthenticated: Bool,
         showsFollowing: Bool,
         showsChallenge: Bool,
+        showsReadTimings: Bool = false,
+        readTimingsEnabled: Bool = true,
         blockedCount: Int,
         unreadNotifications: Bool,
         palette: ProfilePagePalette? = nil
@@ -115,13 +120,25 @@ final class MeMenuView: ProfileMenuSheetView {
         if let following = controls[.following], let community = rowGroups.first {
             setVisible(showsFollowing, view: following, in: community, at: 1)
         }
+        if let readTimings = controls[.readTimings], let preferences = rowGroups.last {
+            setVisible(showsReadTimings, view: readTimings, in: preferences, at: 2)
+        }
         if let challenge = controls[.challenge], let preferences = rowGroups.last {
-            setVisible(showsChallenge, view: challenge, in: preferences, at: 2)
+            setVisible(showsChallenge, view: challenge, in: preferences, at: 3)
         }
         for (action, control) in controls {
             let unread = action == .notifications && unreadNotifications
-            let detail = action == .localBlocklist
-                ? String(localized: "me.local_blocklist.count \(blockedCount)") : nil
+            let detail: String?
+            switch action {
+            case .localBlocklist:
+                detail = String(localized: "me.local_blocklist.count \(blockedCount)")
+            case .readTimings:
+                detail = readTimingsEnabled
+                    ? String(localized: "settings.read_timings.status.enabled")
+                    : String(localized: "settings.read_timings.status.disabled")
+            default:
+                detail = nil
+            }
             control.configure(detail: detail, unread: unread, palette: palette)
         }
         sectionLabels.forEach {

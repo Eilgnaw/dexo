@@ -50,6 +50,7 @@ final class ChallengeViewController: BaseViewController {
     private let userAgent: String?
 
     private var webView: WKWebView?
+    private var webCookieSession: WebCookieStore.WebViewSession?
     private var proxyLease: AnyObject?
     private var setupTask: Task<Void, Never>?
     private var isFinalCookieSyncInProgress = false
@@ -125,9 +126,7 @@ final class ChallengeViewController: BaseViewController {
             webView.uiDelegate = coordinator
             webView.isOpaque = false
             webView.backgroundColor = .systemBackground
-            if let userAgent {
-                webView.customUserAgent = userAgent
-            }
+            webView.customUserAgent = userAgent ?? WebLoginCompatibility.mobileSafariUserAgent()
             webView.translatesAutoresizingMaskIntoConstraints = false
             self.webView = webView
 
@@ -173,13 +172,11 @@ final class ChallengeViewController: BaseViewController {
         // The native MITM proxy keeps the original HTTPS URL, so WebKit still
         // owns the real-origin cookie jar. Seed the existing login and
         // Cloudflare state in both direct and proxied modes.
-        let cookies = WebCookieStore.shared.cookies(for: targetURL)
-        let store = webView.configuration.websiteDataStore.httpCookieStore
-        for cookie in cookies {
-            await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
-                store.setCookie(cookie) { cont.resume() }
-            }
-        }
+        webCookieSession = await WebCookieStore.shared.prepareWebView(
+            webView.configuration.websiteDataStore,
+            for: targetURL,
+            userAgent: webView.customUserAgent
+        )
     }
 
     private func syncCookies() {
@@ -190,21 +187,9 @@ final class ChallengeViewController: BaseViewController {
 
     @MainActor
     private func syncWebSession() async {
-        guard let webView else { return }
-        await WebCookieStore.shared.syncFromWebView(
-            webView.configuration.websiteDataStore,
-            for: targetURL
-        )
-
-        // Cloudflare clearance can be tied to the browser User-Agent. Keep
-        // the API request consistent with the WKWebView that passed the
-        // challenge, including the first add-forum probe before login state
-        // has been persisted.
-        if let evaluatedUserAgent = try? await webView.evaluateJavaScript("navigator.userAgent") as? String,
-           !evaluatedUserAgent.isEmpty
-        {
-            WebCookieStore.shared.userAgent = evaluatedUserAgent
-        }
+        // No session exists until seeding has finished. Closing during setup
+        // must never copy an empty WebKit jar over the native login session.
+        await webCookieSession?.sync(from: webView?.url)
     }
 
     @objc private func cancelTapped() {
@@ -247,7 +232,7 @@ final class ChallengeViewController: BaseViewController {
     /// Convenience for presenting the challenge flow from any view controller.
     static func present(from presenter: UIViewController) {
         guard let url = URL(string: "https://linux.do/challenge") else { return }
-        let vc = ChallengeViewController(targetURL: url, userAgent: WebCookieStore.shared.userAgent)
+        let vc = ChallengeViewController(targetURL: url, userAgent: WebCookieStore.shared.userAgent(for: url))
         let nav = UINavigationController(rootViewController: vc)
         nav.modalPresentationStyle = .pageSheet
         presenter.present(nav, animated: true)

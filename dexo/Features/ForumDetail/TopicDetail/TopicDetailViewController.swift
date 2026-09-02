@@ -668,6 +668,7 @@ final class LegacyTopicDetailViewController: ObservableViewController {
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        api.resumeTopicTimingUploads()
         resumeReadTracking()
         startReadFlushTimer()
         // Initial "rush" flush: same code path as scroll-stop — debounced by
@@ -761,21 +762,24 @@ final class LegacyTopicDetailViewController: ObservableViewController {
         super.viewWillDisappear(animated)
         cancelPendingReadFlush()
         stopReadFlushTimer()
-        flushReadTimings()
         // Pause stops the topic timer (and clears in-flight visible-cell timers)
         // until the next viewWillAppear, so any time the VC is off-screen — push,
         // tab switch, app background — doesn't get attributed to the next snapshot.
         readTracker.pause()
+        flushReadTimings()
     }
 
     @objc private func appDidEnterBackground() {
         cancelPendingReadFlush()
         stopReadFlushTimer()
-        flushReadTimings()
+        api.suspendTopicTimingUploads()
         readTracker.pause()
+        flushReadTimings()
     }
 
     @objc private func appWillEnterForeground() {
+        guard viewIfLoaded?.window != nil else { return }
+        api.resumeTopicTimingUploads()
         resumeReadTracking()
         startReadFlushTimer()
         scheduleDebouncedReadFlush()
@@ -832,15 +836,11 @@ final class LegacyTopicDetailViewController: ObservableViewController {
         let snap = readTracker.snapshotDelta()
         debugLog("[ReadTracker] topic=\(topicId) flush topic_time=\(snap.topicTime) posts=\(snap.timings.count)")
         guard !snap.timings.isEmpty else { return }
-        let topicId = self.topicId
-        let api = self.api
-        Task.detached {
-            try? await api.postTopicTimings(
-                topicId: topicId,
-                topicTime: snap.topicTime,
-                timings: snap.timings
-            )
-        }
+        api.enqueueTopicTimings(
+            topicId: topicId,
+            topicTime: snap.topicTime,
+            timings: snap.timings
+        )
     }
 
     override func viewDidLayoutSubviews() {

@@ -5854,13 +5854,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Dexo stopped linux.do read-time reporting after 3 consecutive failures. Complete the site verification before enabling it again in Settings."
+            "value" : "Dexo stopped linux.do read-time reporting after Cloudflare requested verification. Complete the site verification before enabling it again in Settings."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "linux.do 阅读时间上报已连续失败 3 次，Dexo 已自动关闭。请先完成站点验证，再到设置中手动开启。"
+            "value" : "Cloudflare 已要求验证，Dexo 已停止 linux.do 阅读时间上报。请先完成站点验证，再到设置中手动开启。"
           }
         }
       }
@@ -5882,18 +5882,17 @@
       }
     },
     "settings.read_timings.footer" : {
-      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "linux.do reporting is off by default and may trigger site protection. After 3 consecutive failures, including a Cloudflare challenge, Dexo turns it off automatically. Complete the challenge before enabling it again."
+            "value" : "Enabled by default for linux.do web-login accounts. Uploads are combined and rate-limited. If Cloudflare requests verification, reporting stops until you complete verification and enable it again."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "linux.do 阅读时间上报默认关闭，开启后可能触发站点防护。连续失败 3 次（包括 Cloudflare 验证/撞盾）后会自动关闭；请完成验证后再手动开启。"
+            "value" : "linux.do 网页登录账号默认开启。上报会合并并限速；若 Cloudflare 要求验证，将停止上报，请完成验证后再手动开启。"
           }
         }
       }
@@ -5914,6 +5913,38 @@
         }
       }
     },
+    "settings.read_timings.linux_do.subtitle" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Web login only · at most one upload every 30 seconds"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "仅限网页登录 · 最多每 30 秒上报一次"
+          }
+        }
+      }
+    },
+    "settings.read_timings.linux_do.title" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "linux.do Read-time Reporting"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "linux.do 阅读时间上报"
+          }
+        }
+      }
+    },
     "settings.read_timings.reports" : {
       "localizations" : {
         "en" : {
@@ -5926,6 +5957,54 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "阅读时间上报记录"
+          }
+        }
+      }
+    },
+    "settings.read_timings.reports.summary %lld %lld" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Success: %1$lld · Failed: %2$lld"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "成功 %1$lld · 失败 %2$lld"
+          }
+        }
+      }
+    },
+    "settings.read_timings.status.disabled" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Off"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已关闭"
+          }
+        }
+      }
+    },
+    "settings.read_timings.status.enabled" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "On"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已开启"
           }
         }
       }
@@ -6024,6 +6103,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "阅读记录"
+          }
+        }
+      }
+    },
+    "settings.section.read_timings" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Read-time Reporting"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "阅读时间上报"
           }
         }
       }
@@ -6873,6 +6968,22 @@
         }
       }
     },
+    "timing_reports.clear.linux_do.message" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This deletes linux.do upload diagnostics only. Local read history and reports for other forums are not affected."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "只会删除 linux.do 上报诊断记录，不会影响本地已读历史或其他论坛的记录。"
+          }
+        }
+      }
+    },
     "timing_reports.clear.title" : {
       "localizations" : {
         "en" : {
@@ -7161,6 +7272,22 @@
         }
       }
     },
+    "timing_reports.linux_do.title" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "linux.do Upload History"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "linux.do 上报记录"
+          }
+        }
+      }
+    },
     "timing_reports.row.detail %@ %@ %@ %lld %@ %@" : {
       "localizations" : {
         "en" : {
@@ -7190,6 +7317,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@ · %lld 帖 · %@ · %@"
+          }
+        }
+      }
+    },
+    "timing_reports.row.error %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reason: %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "原因：%@"
           }
         }
       }

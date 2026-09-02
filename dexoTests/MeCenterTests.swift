@@ -165,20 +165,34 @@ final class MeCenterTests: XCTestCase {
             "me.notifications", "me.bookmarks", "me.read",
             "me.local_blocklist", "me.push_notifications", "me.logout",
         ])
-        configure(menu, following: true, challenge: true)
+        configure(menu, following: true, challenge: true, readTimings: true)
         XCTAssertEqual(actionIDs(in: menu), [
             "me.notifications", "me.following", "me.bookmarks", "me.read",
-            "me.local_blocklist", "me.push_notifications", "me.challenge", "me.logout",
+            "me.local_blocklist", "me.push_notifications", "me.read_timings",
+            "me.challenge", "me.logout",
         ])
         configure(menu, following: false, challenge: false)
         XCTAssertFalse(actionIDs(in: menu).contains("me.following"))
         XCTAssertFalse(actionIDs(in: menu).contains("me.challenge"))
+        XCTAssertFalse(actionIDs(in: menu).contains("me.read_timings"))
 
         var selected: MeMenuView.Action?
         menu.onAction = { selected = $0 }
         let bookmarks = try XCTUnwrap(controls(in: menu).first { $0.accessibilityIdentifier == "me.bookmarks" })
         bookmarks.sendActions(for: .touchUpInside)
         XCTAssertEqual(selected, .bookmarks)
+    }
+
+    func testLinuxDoReadTimingEntryShowsReportingState() throws {
+        let menu = MeMenuView()
+        configure(menu, readTimings: true, readTimingsEnabled: false)
+        let control = try XCTUnwrap(
+            controls(in: menu).first { $0.accessibilityIdentifier == "me.read_timings" }
+        )
+        XCTAssertEqual(
+            control.accessibilityValue,
+            String(localized: "settings.read_timings.status.disabled")
+        )
     }
 
     func testLoggedOutMenuHasOnlyLoginAndCanReturnToAuthenticatedState() throws {
@@ -510,10 +524,12 @@ final class MeCenterTests: XCTestCase {
 
     private func configure(
         _ menu: MeMenuView, authenticated: Bool = true, following: Bool = false,
-        challenge: Bool = false, notifications: Bool = false
+        challenge: Bool = false, readTimings: Bool = false,
+        readTimingsEnabled: Bool = true, notifications: Bool = false
     ) {
         menu.configure(
             isAuthenticated: authenticated, showsFollowing: following, showsChallenge: challenge,
+            showsReadTimings: readTimings, readTimingsEnabled: readTimingsEnabled,
             blockedCount: 2, unreadNotifications: notifications
         )
     }

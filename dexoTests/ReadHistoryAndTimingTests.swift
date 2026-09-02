@@ -99,6 +99,55 @@ final class ReadHistoryDatabaseTests: XCTestCase {
         }
     }
 
+    func testTimingReportsCanBeScopedAndClearedForLinuxDoOnly() throws {
+        try withDatabase { database in
+            var linuxDo = ForumInstance.new(title: "linux.do", baseURL: "https://linux.do")
+            var meta = ForumInstance.new(title: "Meta", baseURL: "https://meta.linux.do")
+            var other = ForumInstance.new(title: "Other", baseURL: "https://forum.example.com")
+            try database.saveForum(&linuxDo)
+            try database.saveForum(&meta)
+            try database.saveForum(&other)
+
+            let forums = [linuxDo, meta, other]
+            for (index, forum) in forums.enumerated() {
+                var report = TopicTimingReport(
+                    id: nil,
+                    forumId: try XCTUnwrap(forum.id),
+                    baseURL: forum.baseURL,
+                    accountName: "alice",
+                    topicId: index + 1,
+                    attemptedAt: Date(timeIntervalSince1970: TimeInterval(index)),
+                    topicTime: 1_000,
+                    postCount: 1,
+                    visibleTime: 1_000,
+                    requestDuration: 20,
+                    statusCode: index == 1 ? 503 : 200,
+                    outcome: index == 1 ? .failure : .success,
+                    consecutiveFailureCount: index == 1 ? 1 : 0,
+                    trippedBreaker: false,
+                    errorSummary: index == 1 ? "HTTP 503" : nil
+                )
+                try database.saveTopicTimingReport(&report)
+            }
+
+            XCTAssertEqual(
+                try database.fetchTopicTimingReports(scope: .linuxDo).map(\.topicId),
+                [2, 1]
+            )
+            XCTAssertEqual(
+                try database.fetchTopicTimingReports(filter: .failure, scope: .linuxDo).map(\.topicId),
+                [2]
+            )
+
+            try database.clearTopicTimingReports(scope: .linuxDo)
+            XCTAssertTrue(try database.fetchTopicTimingReports(scope: .linuxDo).isEmpty)
+            XCTAssertEqual(
+                try database.fetchTopicTimingReports(scope: .allForums).map(\.topicId),
+                [3]
+            )
+        }
+    }
+
     private func withDatabase(_ body: (DatabaseManager) throws -> Void) throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("dexo-read-history-tests-\(UUID().uuidString)", isDirectory: true)
@@ -239,34 +288,34 @@ final class ReadTopicMergerTests: XCTestCase {
 }
 
 final class TopicTimingPolicyTests: XCTestCase {
-    func testLinuxDoDefaultsOffAndManualReenableAdvancesGeneration() throws {
+    func testLinuxDoDefaultsOnAndExplicitOffPersists() throws {
         let suiteName = "dexo-topic-timing-tests-\(UUID().uuidString)"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
         let settings = AppSettings(testingDefaults: defaults)
 
-        XCTAssertFalse(settings.linuxDoReadTimingsEnabled)
-        XCTAssertEqual(settings.linuxDoReadTimingsActivationGeneration, 0)
-        settings.linuxDoReadTimingsEnabled = true
-        XCTAssertEqual(settings.linuxDoReadTimingsActivationGeneration, 1)
-        settings.linuxDoReadTimingsEnabled = true
-        XCTAssertEqual(settings.linuxDoReadTimingsActivationGeneration, 1)
+        XCTAssertTrue(settings.linuxDoReadTimingsEnabled)
         settings.linuxDoReadTimingsEnabled = false
+        XCTAssertFalse(AppSettings(testingDefaults: defaults).linuxDoReadTimingsEnabled)
         settings.linuxDoReadTimingsEnabled = true
-        XCTAssertEqual(settings.linuxDoReadTimingsActivationGeneration, 2)
+        XCTAssertTrue(AppSettings(testingDefaults: defaults).linuxDoReadTimingsEnabled)
     }
 
-    func testLinuxDoPolicyCoversSubdomainsWithoutChangingOtherForums() {
+    func testLinuxDoPolicyRequiresWebSessionAndCoversSubdomains() {
         let settings = AppSettings.shared
         let original = settings.linuxDoReadTimingsEnabled
         defer { settings.linuxDoReadTimingsEnabled = original }
 
         settings.linuxDoReadTimingsEnabled = false
-        XCTAssertFalse(ForumPolicy.tracksReadTimings(baseURL: "https://linux.do"))
-        XCTAssertFalse(ForumPolicy.tracksReadTimings(baseURL: "https://meta.linux.do"))
-        XCTAssertTrue(ForumPolicy.tracksReadTimings(baseURL: "https://example.com"))
+        XCTAssertFalse(ForumPolicy.tracksReadTimings(baseURL: "https://linux.do", authKind: .webSession))
         settings.linuxDoReadTimingsEnabled = true
-        XCTAssertTrue(ForumPolicy.tracksReadTimings(baseURL: "https://linux.do"))
+        XCTAssertTrue(ForumPolicy.tracksReadTimings(baseURL: "https://linux.do", authKind: .webSession))
+        XCTAssertTrue(ForumPolicy.tracksReadTimings(baseURL: "https://meta.linux.do", authKind: .webSession))
+        XCTAssertFalse(ForumPolicy.tracksReadTimings(baseURL: "https://linux.do", authKind: .userAPIKey))
+        XCTAssertFalse(ForumPolicy.tracksReadTimings(baseURL: "https://linux.do", authKind: .anonymous))
+        XCTAssertTrue(ForumPolicy.tracksReadTimings(baseURL: "https://example.com", authKind: .userAPIKey))
+        XCTAssertTrue(ForumPolicy.tracksReadTimings(baseURL: "https://example.com", authKind: .webSession))
+        XCTAssertFalse(ForumPolicy.tracksReadTimings(baseURL: "https://example.com", authKind: .anonymous))
     }
 
     func testCloudflareChallengeWinsOverSuccessStatus() {
@@ -291,13 +340,16 @@ final class TopicTimingPolicyTests: XCTestCase {
         XCTAssertEqual(failure.errorSummary, "HTTP 500")
     }
 
-    func testThirdConsecutiveFailureTripsAndSuccessResetsBreaker() {
-        var breaker = TopicTimingCircuitBreaker()
-        XCTAssertFalse(breaker.record(.failure))
-        XCTAssertFalse(breaker.record(.cloudflareChallenge))
-        XCTAssertTrue(breaker.record(.failure))
-        XCTAssertTrue(breaker.isTripped)
-        XCTAssertFalse(breaker.record(.success))
-        XCTAssertEqual(breaker.failureCount, 0)
+    func testTimingRouteDoesNotUseImmediateMutatingRetry() {
+        XCTAssertFalse(
+            allowsImmediateMutatingAuthRetry(
+                for: URL(string: "https://linux.do/topics/timings")
+            )
+        )
+        XCTAssertTrue(
+            allowsImmediateMutatingAuthRetry(
+                for: URL(string: "https://linux.do/posts.json")
+            )
+        )
     }
 }

@@ -3,8 +3,19 @@ import UIKit
 final class TopicTimingReportsViewController: BaseViewController {
     override var backgroundStyle: BackgroundStyle { .grouped }
 
+    private let scope: TopicTimingReportScope
     private var reports: [TopicTimingReport] = []
     private var filter: TopicTimingReportFilter = .all
+
+    init(scope: TopicTimingReportScope = .allForums) {
+        self.scope = scope
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
 
     private lazy var segmentedControl: UISegmentedControl = {
         let control = UISegmentedControl(items: [
@@ -40,7 +51,9 @@ final class TopicTimingReportsViewController: BaseViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        title = String(localized: "settings.read_timings.reports")
+        title = scope == .linuxDo
+            ? String(localized: "timing_reports.linux_do.title")
+            : String(localized: "settings.read_timings.reports")
         navigationItem.rightBarButtonItem = UIBarButtonItem(
             title: String(localized: "action.clear"),
             style: .plain,
@@ -75,7 +88,9 @@ final class TopicTimingReportsViewController: BaseViewController {
     }
 
     private func reloadReports() {
-        reports = (try? DatabaseManager.shared.fetchTopicTimingReports(filter: filter)) ?? []
+        reports = (
+            try? DatabaseManager.shared.fetchTopicTimingReports(filter: filter, scope: scope)
+        ) ?? []
         emptyLabel.isHidden = !reports.isEmpty
         navigationItem.rightBarButtonItem?.isEnabled = !reports.isEmpty
         tableView.reloadData()
@@ -90,13 +105,16 @@ final class TopicTimingReportsViewController: BaseViewController {
     @objc private func clearTapped() {
         let alert = UIAlertController(
             title: String(localized: "timing_reports.clear.title"),
-            message: String(localized: "timing_reports.clear.message"),
+            message: scope == .linuxDo
+                ? String(localized: "timing_reports.clear.linux_do.message")
+                : String(localized: "timing_reports.clear.message"),
             preferredStyle: .alert
         )
         alert.addAction(UIAlertAction(title: String(localized: "action.cancel"), style: .cancel))
         alert.addAction(UIAlertAction(title: String(localized: "action.clear"), style: .destructive) { [weak self] _ in
-            try? DatabaseManager.shared.clearTopicTimingReports()
-            self?.reloadReports()
+            guard let self else { return }
+            try? DatabaseManager.shared.clearTopicTimingReports(scope: self.scope)
+            self.reloadReports()
         })
         present(alert, animated: true)
     }
@@ -163,7 +181,7 @@ extension TopicTimingReportsViewController: UITableViewDataSource {
         let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
         cell.textLabel?.font = FontManager.shared.font(size: 16, weight: .medium)
         cell.detailTextLabel?.font = FontManager.shared.font(size: 13)
-        cell.detailTextLabel?.numberOfLines = 2
+        cell.detailTextLabel?.numberOfLines = 3
         let report = reports[indexPath.row]
         let symbol: String
         let tint: UIColor
@@ -183,9 +201,16 @@ extension TopicTimingReportsViewController: UITableViewDataSource {
         cell.textLabel?.text = "\(Self.host(from: report.baseURL)) · #\(report.topicId)"
         let status = report.statusCode.map { "HTTP \($0)" } ?? String(localized: "timing_reports.status.no_http")
         let account = report.accountName ?? String(localized: "timing_reports.account.anonymous")
-        cell.detailTextLabel?.text = String(
+        var detail = String(
             localized: "timing_reports.row.detail \(account) \(Self.outcomeTitle(report.outcome)) \(Self.dateFormatter.string(from: report.attemptedAt)) \(report.postCount) \(Self.duration(report.topicTime)) \(status)"
         )
+        if let errorSummary = report.errorSummary,
+           !errorSummary.isEmpty,
+           report.outcome != .success
+        {
+            detail += "\n" + String(localized: "timing_reports.row.error \(errorSummary)")
+        }
+        cell.detailTextLabel?.text = detail
         cell.detailTextLabel?.textColor = .secondaryLabel
         cell.accessoryType = .disclosureIndicator
         return cell

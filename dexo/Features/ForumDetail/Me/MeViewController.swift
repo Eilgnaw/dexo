@@ -169,6 +169,7 @@ final class MeViewController: ObservableViewController {
         let unreadNotifications = notificationPoller?.hasUnreadNotifications ?? false
         let unreadMessages = notificationPoller?.hasUnreadMessages ?? false
         _ = AppSettings.shared.localBlocklistRevision
+        let readTimingsEnabled = AppSettings.shared.linuxDoReadTimingsEnabled
         _ = ThemeManager.shared.revision
         _ = FontManager.shared.revision
         let isAuthenticated = authGate?.isAuthenticated() ?? false
@@ -189,6 +190,8 @@ final class MeViewController: ObservableViewController {
             showsFollowing: api.isLinuxDo,
             showsChallenge: isAuthenticated && api.isLinuxDo
                 && KeychainHelper.getUserApiKey(for: api.baseURL) == AuthManager.webAuthSentinel,
+            showsReadTimings: api.isLinuxDo,
+            readTimingsEnabled: readTimingsEnabled,
             blockedCount: AppSettings.shared.localBlockedUsers(for: api.baseURL).count,
             unreadNotifications: unreadNotifications,
             palette: profileHeader.pagePalette
@@ -408,6 +411,8 @@ final class MeViewController: ObservableViewController {
         case .pushNotifications:
             guard let username else { return }
             destination = PushNotificationSettingsViewController(api: api, username: username)
+        case .readTimings:
+            destination = LinuxDoReadTimingSettingsViewController()
         case .challenge:
             ChallengeViewController.present(from: self)
             return

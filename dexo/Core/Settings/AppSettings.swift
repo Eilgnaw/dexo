@@ -312,26 +312,26 @@ final class AppSettings {
 
     // MARK: - Read Tracking
 
-    /// linux.do timing uploads are deliberately opt-in. `bool(forKey:)`
-    /// defaults to false, preserving the app's historical behavior.
+    /// linux.do timing uploads default on for browser-authenticated accounts.
+    /// Checking `object(forKey:)` preserves an explicit off value written by
+    /// either the user or the Cloudflare protection circuit breaker.
     var linuxDoReadTimingsEnabled: Bool {
-        get { defaults.bool(forKey: "linuxDoReadTimingsEnabled") }
+        get {
+            guard defaults.object(forKey: "linuxDoReadTimingsEnabled") != nil else {
+                return true
+            }
+            return defaults.bool(forKey: "linuxDoReadTimingsEnabled")
+        }
         set {
-            let wasEnabled = defaults.bool(forKey: "linuxDoReadTimingsEnabled")
+            let wasEnabled = linuxDoReadTimingsEnabled
             defaults.set(newValue, forKey: "linuxDoReadTimingsEnabled")
-            if newValue, !wasEnabled {
-                defaults.set(
-                    linuxDoReadTimingsActivationGeneration + 1,
-                    forKey: "linuxDoReadTimingsActivationGeneration"
+            if newValue != wasEnabled {
+                NotificationCenter.default.post(
+                    name: .linuxDoReadTimingsSettingDidChange,
+                    object: self
                 )
             }
         }
-    }
-
-    /// Changes whenever the user manually moves the linux.do switch from off
-    /// to on, allowing already-created API instances to reset their breaker.
-    var linuxDoReadTimingsActivationGeneration: Int {
-        defaults.integer(forKey: "linuxDoReadTimingsActivationGeneration")
     }
 
     // MARK: - DNS over HTTPS
@@ -428,4 +428,10 @@ final class AppSettings {
         guard let data = try? JSONEncoder().encode(servers) else { return }
         defaults.set(data, forKey: "dohServers")
     }
+}
+
+extension Notification.Name {
+    static let linuxDoReadTimingsSettingDidChange = Notification.Name(
+        "linuxDoReadTimingsSettingDidChange"
+    )
 }

@@ -10,23 +10,51 @@ final class WebCookieStore {
     private let lock = NSLock()
     private let filePath: URL
 
-    /// The User-Agent captured from the WKWebView that completed login.
-    var userAgent: String? {
-        didSet { saveUserAgent() }
-    }
-
+    private var userAgents: [String: String] = [:]
     private let userAgentPath: URL
 
-    private init() {
-        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+    init(directory: URL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]) {
+        let dir = directory
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         filePath = dir.appendingPathComponent("dexo_web_cookies.json")
-        userAgentPath = dir.appendingPathComponent("dexo_web_ua.txt")
+        userAgentPath = dir.appendingPathComponent("dexo_web_user_agents.json")
         load()
-        userAgent = loadUserAgent()
+        if let data = try? Data(contentsOf: userAgentPath),
+           let saved = try? JSONDecoder().decode([String: String].self, from: data)
+        {
+            userAgents = saved
+        } else if let legacy = try? String(contentsOf: dir.appendingPathComponent("dexo_web_ua.txt"), encoding: .utf8) {
+            // Preserve existing sessions, but never let another site's next
+            // login replace the User-Agent paired with their clearance.
+            for cookie in jar.values {
+                userAgents[cookie.domain.lowercased()] = legacy
+            }
+            saveUserAgents()
+        }
     }
 
     // MARK: - Read / Write
+
+    func userAgent(for url: URL) -> String? {
+        guard let host = url.host?.lowercased() else { return nil }
+        lock.lock()
+        defer { lock.unlock() }
+        if let exact = userAgents[host] { return exact }
+        // Domain-scoped entries only come from migrating the old UA file.
+        return userAgents.keys
+            .filter { Self.cookieDomain($0, matchesHost: host) }
+            .sorted { $0.count > $1.count }
+            .first.flatMap { userAgents[$0] }
+    }
+
+    func setUserAgent(_ userAgent: String?, for url: URL) {
+        guard let host = url.host?.lowercased(), let userAgent, !userAgent.isEmpty else { return }
+        lock.lock()
+        let changed = userAgents[host] != userAgent
+        userAgents[host] = userAgent
+        lock.unlock()
+        if changed { saveUserAgents() }
+    }
 
     func setCookies(_ cookies: [HTTPCookie]) {
         let now = Date()
@@ -57,49 +85,132 @@ final class WebCookieStore {
         }
     }
 
-    func cookieHeader(for url: URL) -> String {
-        cookies(for: url).map { "\($0.name)=\($0.value)" }.joined(separator: "; ")
+    func cookieHeader(for url: URL, includeSessionCookies: Bool = true) -> String {
+        cookies(for: url)
+            .filter { includeSessionCookies || Self.isChallengeCookie($0) }
+            .map { "\($0.name)=\($0.value)" }.joined(separator: "; ")
     }
 
-    func mergeResponseHeaders(_ headers: [AnyHashable: Any], for url: URL) {
+    private static func isChallengeCookie(_ cookie: HTTPCookie) -> Bool {
+        ["cf_clearance", "__cf_bm", "_cfuvid"].contains(cookie.name)
+    }
+
+    func mergeResponseHeaders(_ headers: [AnyHashable: Any], for url: URL, includeSessionCookies: Bool = true) {
         var stringHeaders: [String: String] = [:]
         for (k, v) in headers { stringHeaders["\(k)"] = "\(v)" }
         let newCookies = HTTPCookie.cookies(withResponseHeaderFields: stringHeaders, for: url)
+            .filter { includeSessionCookies || Self.isChallengeCookie($0) }
         if !newCookies.isEmpty { setCookies(newCookies) }
     }
 
-    @MainActor
-    func syncFromWebView(_ dataStore: WKWebsiteDataStore, for url: URL) async {
-        let cookies = await withCheckedContinuation { cont in
-            dataStore.httpCookieStore.getAllCookies { cont.resume(returning: $0) }
-        }
-        guard let host = url.host?.lowercased() else { return }
+    struct Snapshot {
+        fileprivate let cookies: [String: HTTPCookie]
+    }
 
-        // Treat WebKit as authoritative for this forum. A challenge may
-        // delete or rotate cf_clearance without returning the expired cookie
-        // from getAllCookies; merge-only syncing would leave that stale value
-        // in the native jar and send it again on the next topic request.
-        let now = Date()
-        let currentForumCookies = cookies.filter {
-            Self.cookieDomain($0.domain, matchesHost: host)
-                && ($0.expiresDate.map { $0 > now } ?? true)
-        }
+    func snapshot(for url: URL) -> Snapshot {
         lock.lock()
-        jar = jar.filter { _, cookie in
-            !Self.cookieDomain(cookie.domain, matchesHost: host)
+        defer { lock.unlock() }
+        return snapshot(Array(jar.values), for: url)
+    }
+
+    private func snapshot(_ cookies: [HTTPCookie], for url: URL) -> Snapshot {
+        guard let host = url.host else { return Snapshot(cookies: [:]) }
+        let now = Date()
+        var result: [String: HTTPCookie] = [:]
+        for cookie in cookies where Self.cookieDomain(cookie.domain, matchesHost: host)
+            && (cookie.expiresDate.map { $0 > now } ?? true)
+        {
+            result[key(for: cookie)] = cookie
         }
-        for cookie in currentForumCookies {
-            jar[key(for: cookie)] = cookie
+        return Snapshot(cookies: result)
+    }
+
+    /// Apply only changes made by this browser. Unchanged WebKit cookies must
+    /// not roll back a newer Set-Cookie received by the native API meanwhile.
+    @discardableResult
+    func mergeWebViewCookies(_ cookies: [HTTPCookie], for url: URL, since previous: Snapshot) -> Snapshot {
+        let current = snapshot(cookies, for: url)
+        lock.lock()
+        for (key, oldCookie) in previous.cookies where current.cookies[key] == nil {
+            if Self.sameCookie(jar[key], oldCookie) {
+                jar.removeValue(forKey: key)
+            }
+        }
+        for (key, cookie) in current.cookies where !Self.sameCookie(previous.cookies[key], cookie) {
+            jar[key] = cookie
         }
         lock.unlock()
         save()
+        return current
+    }
+
+    private static func sameCookie(_ lhs: HTTPCookie?, _ rhs: HTTPCookie) -> Bool {
+        lhs?.value == rhs.value && lhs?.expiresDate == rhs.expiresDate
+            && lhs?.isSecure == rhs.isSecure && lhs?.isHTTPOnly == rhs.isHTTPOnly
+    }
+
+    @MainActor
+    func prepareWebView(_ dataStore: WKWebsiteDataStore, for url: URL, userAgent: String?) async -> WebViewSession {
+        // Seed every path for this host, not just cookies for /challenge or /.
+        // Otherwise a later snapshot would incorrectly delete path cookies.
+        let initial = snapshot(for: url)
+        let cookieStore = dataStore.httpCookieStore
+        let existing = await cookieStore.allCookies()
+        for cookie in snapshot(existing, for: url).cookies.values where initial.cookies[key(for: cookie)] == nil {
+            await cookieStore.deleteCookie(cookie)
+        }
+        for cookie in initial.cookies.values {
+            await cookieStore.setCookie(cookie)
+        }
+        return WebViewSession(
+            store: self, dataStore: dataStore, url: url, userAgent: userAgent,
+            snapshot: snapshot(await cookieStore.allCookies(), for: url)
+        )
+    }
+
+    @MainActor
+    final class WebViewSession {
+        private let store: WebCookieStore
+        private let dataStore: WKWebsiteDataStore
+        private let url: URL
+        private let userAgent: String?
+        private var snapshot: Snapshot
+        private var syncTask: Task<Void, Never>?
+
+        fileprivate init(store: WebCookieStore, dataStore: WKWebsiteDataStore, url: URL, userAgent: String?, snapshot: Snapshot) {
+            self.store = store
+            self.dataStore = dataStore
+            self.url = url
+            self.userAgent = userAgent
+            self.snapshot = snapshot
+        }
+
+        func sync(from currentURL: URL?) async {
+            // WebKit observers cover the entire data store, including third
+            // party pages. Only this forum's top-level page may write back.
+            guard let host = currentURL?.host, let forumHost = url.host,
+                  host.caseInsensitiveCompare(forumHost) == .orderedSame
+            else { return }
+            // Cookie notifications and dismissal can overlap. Serialize their
+            // snapshots so an older callback cannot undo the final sync.
+            let previousTask = syncTask
+            let task = Task { @MainActor in
+                await previousTask?.value
+                let cookies = await dataStore.httpCookieStore.allCookies()
+                snapshot = store.mergeWebViewCookies(cookies, for: url, since: snapshot)
+                store.setUserAgent(userAgent, for: url)
+            }
+            syncTask = task
+            await task.value
+        }
     }
 
     func clearAll() {
         lock.lock()
         jar.removeAll()
+        userAgents.removeAll()
         lock.unlock()
-        userAgent = nil
+        saveUserAgents()
         try? FileManager.default.removeItem(at: filePath)
     }
 
@@ -109,8 +220,10 @@ final class WebCookieStore {
         jar = jar.filter { _, cookie in
             !Self.cookieDomain(cookie.domain, matchesHost: host)
         }
+        userAgents = userAgents.filter { !Self.cookieDomain($0.key, matchesHost: host) }
         lock.unlock()
         save()
+        saveUserAgents()
     }
 
     /// Returns whether a cookie's domain applies to a host. Domain cookies
@@ -128,10 +241,12 @@ final class WebCookieStore {
     // MARK: - Persistence
 
     private func key(for cookie: HTTPCookie) -> String {
-        "\(cookie.domain)|\(cookie.name)|\(cookie.path)"
+        "\(cookie.domain.lowercased())|\(cookie.name)|\(cookie.path)"
     }
 
     private func save() {
+        lock.lock()
+        defer { lock.unlock() }
         let serializable: [[String: Any]] = jar.values.compactMap { cookie in
             guard let props = cookie.properties else { return nil }
             var dict: [String: Any] = [:]
@@ -172,15 +287,11 @@ final class WebCookieStore {
         for c in cookies { jar[key(for: c)] = c }
     }
 
-    private func saveUserAgent() {
-        if let ua = userAgent {
-            try? ua.write(to: userAgentPath, atomically: true, encoding: .utf8)
-        } else {
-            try? FileManager.default.removeItem(at: userAgentPath)
+    private func saveUserAgents() {
+        lock.lock()
+        defer { lock.unlock() }
+        if let data = try? JSONEncoder().encode(userAgents) {
+            try? data.write(to: userAgentPath, options: .atomic)
         }
-    }
-
-    private func loadUserAgent() -> String? {
-        try? String(contentsOf: userAgentPath, encoding: .utf8)
     }
 }

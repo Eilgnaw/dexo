@@ -17,6 +17,13 @@ final class AuthManager: @unchecked Sendable {
         KeychainHelper.getUserApiKey(for: baseURL) != nil
     }
 
+    func authenticationKind(for baseURL: String) -> ForumAuthKind {
+        guard let credential = KeychainHelper.getUserApiKey(for: baseURL) else {
+            return .anonymous
+        }
+        return credential == Self.webAuthSentinel ? .webSession : .userAPIKey
+    }
+
     func username(for baseURL: String) -> String? {
         let normalized = baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         return usernameCache[normalized]
@@ -201,7 +208,7 @@ final class AuthManager: @unchecked Sendable {
     func loginViaWeb(forum: ForumInstance, cookies: [HTTPCookie], userAgent: String?) async throws {
         let baseURL = forum.baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
 
-        guard let baseHost = URL(string: baseURL)?.host,
+        guard let webSessionURL = URL(string: baseURL), let baseHost = webSessionURL.host,
               cookies.contains(where: {
                   $0.name == "_t"
                       && ($0.expiresDate.map { $0 > Date() } ?? true)
@@ -231,7 +238,7 @@ final class AuthManager: @unchecked Sendable {
 
         WebCookieStore.shared.clearCookies(for: baseURL)
         WebCookieStore.shared.setCookies(cookies)
-        WebCookieStore.shared.userAgent = userAgent ?? previousWebSession?.userAgent
+        WebCookieStore.shared.setUserAgent(userAgent ?? previousWebSession?.userAgent, for: webSessionURL)
         KeychainHelper.deleteRSAKeyPair(for: baseURL)
 
         if let username = await fetchAndCacheUsername(baseURL: baseURL, forum: forum) {
@@ -288,7 +295,7 @@ final class AuthManager: @unchecked Sendable {
         return WebSessionSnapshot(
             baseURL: baseURL,
             cookies: WebCookieStore.shared.cookies(for: url),
-            userAgent: WebCookieStore.shared.userAgent,
+            userAgent: WebCookieStore.shared.userAgent(for: url),
             username: username
         )
     }

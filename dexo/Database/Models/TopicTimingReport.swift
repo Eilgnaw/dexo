@@ -38,3 +38,17 @@ enum TopicTimingReportFilter: Int, CaseIterable, Sendable {
     case success
     case failure
 }
+
+nonisolated enum TopicTimingReportScope: Equatable, Sendable {
+    case allForums
+    case linuxDo
+
+    func includes(baseURL: String) -> Bool {
+        switch self {
+        case .allForums:
+            return true
+        case .linuxDo:
+            return ForumPolicy.isLinuxDoFamily(baseURL: baseURL)
+        }
+    }
+}

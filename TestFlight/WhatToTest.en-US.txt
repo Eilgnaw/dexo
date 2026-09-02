@@ -1,5 +1,6 @@
 What's New
 
-- Redesigned the personal center and user profiles with clearer identity and statistics layouts.
-- Added profile backgrounds, matching surface colors, pull-to-stretch effects, and a smoothly fading navigation bar with persistent buttons.
-- Improved profile loading feedback, compact number formatting, and light and dark theme support.
+- Improved linux.do web-login and Cloudflare verification-state synchronization to reduce repeated challenges caused by mismatched cookies or User-Agents.
+- Low-frequency read-time reporting is enabled by default for linux.do web-login accounts. Uploads are consolidated, serialized, and rate-limited; API-key and anonymous sessions do not report.
+- Added read-time reporting settings under linux.do's Me page, including the switch and detailed success, failure, HTTP-status, and error history.
+- Reporting stops immediately when Cloudflare requests verification and can be manually enabled again after verification is completed.

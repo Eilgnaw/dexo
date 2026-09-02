@@ -238,7 +238,10 @@ final class DatabaseManager: Sendable {
         }
     }
 
-    func fetchTopicTimingReports(filter: TopicTimingReportFilter = .all) throws -> [TopicTimingReport] {
+    func fetchTopicTimingReports(
+        filter: TopicTimingReportFilter = .all,
+        scope: TopicTimingReportScope = .allForums
+    ) throws -> [TopicTimingReport] {
         try dbPool.read { db in
             var request = TopicTimingReport.order(Column("attemptedAt").desc, Column("id").desc)
             switch filter {
@@ -249,13 +252,22 @@ final class DatabaseManager: Sendable {
             case .failure:
                 request = request.filter(Column("outcome") != TopicTimingOutcome.success.rawValue)
             }
-            return try request.fetchAll(db)
+            return try request.fetchAll(db).filter { scope.includes(baseURL: $0.baseURL) }
         }
     }
 
-    func clearTopicTimingReports() throws {
+    func clearTopicTimingReports(scope: TopicTimingReportScope = .allForums) throws {
         try dbPool.write { db in
-            _ = try TopicTimingReport.deleteAll(db)
+            switch scope {
+            case .allForums:
+                _ = try TopicTimingReport.deleteAll(db)
+            case .linuxDo:
+                let reports = try TopicTimingReport.fetchAll(db)
+                for report in reports where scope.includes(baseURL: report.baseURL) {
+                    guard let id = report.id else { continue }
+                    _ = try TopicTimingReport.deleteOne(db, key: id)
+                }
+            }
         }
     }
 

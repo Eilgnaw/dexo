@@ -9,6 +9,7 @@ final class ForumWebViewController: BaseViewController {
     private let forumURL: URL
 
     private var webView: WKWebView?
+    private var webCookieSession: WebCookieStore.WebViewSession?
     private var proxyLease: AnyObject?
     private var setupTask: Task<Void, Never>?
     private var progressObservation: NSKeyValueObservation?
@@ -108,9 +109,8 @@ final class ForumWebViewController: BaseViewController {
             webView.uiDelegate = coordinator
             webView.allowsBackForwardNavigationGestures = true
             webView.isOpaque = false
-            if let userAgent = WebCookieStore.shared.userAgent {
-                webView.customUserAgent = userAgent
-            }
+            webView.customUserAgent = WebCookieStore.shared.userAgent(for: forumURL)
+                ?? WebLoginCompatibility.mobileSafariUserAgent()
             self.webView = webView
 
             view.insertSubview(webView, belowSubview: progressView)
@@ -140,18 +140,18 @@ final class ForumWebViewController: BaseViewController {
     }
 
     private func seedCookies(in webView: WKWebView) async {
-        let candidates = WebCookieStore.shared.cookies(for: forumURL)
-            + WebCookieStore.shared.cookies(for: targetURL)
-        var seen = Set<String>()
-        let cookies = candidates.filter { cookie in
-            seen.insert("\(cookie.domain)|\(cookie.name)|\(cookie.path)").inserted
-        }
+        let cookies = WebCookieStore.shared.cookies(for: targetURL)
         let cookieStore = webView.configuration.websiteDataStore.httpCookieStore
         for cookie in cookies {
             await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
                 cookieStore.setCookie(cookie) { continuation.resume() }
             }
         }
+        webCookieSession = await WebCookieStore.shared.prepareWebView(
+            webView.configuration.websiteDataStore,
+            for: forumURL,
+            userAgent: webView.customUserAgent
+        )
     }
 
     private func navigationFinished(title: String?) {
@@ -170,22 +170,9 @@ final class ForumWebViewController: BaseViewController {
     }
 
     private func syncWebSession() async {
-        guard let webView else { return }
-        await WebCookieStore.shared.syncFromWebView(
-            webView.configuration.websiteDataStore,
-            for: forumURL
-        )
-
-        guard isForumURL(webView.url),
-              let evaluatedUserAgent = try? await webView.evaluateJavaScript("navigator.userAgent") as? String,
-              !evaluatedUserAgent.isEmpty
-        else { return }
-        WebCookieStore.shared.userAgent = evaluatedUserAgent
-    }
-
-    private func isForumURL(_ url: URL?) -> Bool {
-        guard let host = url?.host, let forumHost = forumURL.host else { return false }
-        return host.caseInsensitiveCompare(forumHost) == .orderedSame
+        // External pages share WebKit's cookie store and also trigger its
+        // observer. They are not authoritative for the originating forum.
+        await webCookieSession?.sync(from: webView?.url)
     }
 
     private func showProxyUnavailableAlert() {

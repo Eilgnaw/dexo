@@ -513,6 +513,7 @@ final class VirtualizedTopicDetailViewController: ObservableViewController, UIGe
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        api.resumeTopicTimingUploads()
         resumeReadTracking()
         startReadFlushTimer()
         scheduleDebouncedReadFlush()
@@ -522,8 +523,8 @@ final class VirtualizedTopicDetailViewController: ObservableViewController, UIGe
         super.viewWillDisappear(animated)
         cancelPendingReadFlush()
         stopReadFlushTimer()
-        flushReadTimings()
         readTracker.pause()
+        flushReadTimings()
         cancelAllImagePrefetches()
     }
 
@@ -678,11 +679,14 @@ final class VirtualizedTopicDetailViewController: ObservableViewController, UIGe
     @objc private func appDidEnterBackground() {
         cancelPendingReadFlush()
         stopReadFlushTimer()
-        flushReadTimings()
+        api.suspendTopicTimingUploads()
         readTracker.pause()
+        flushReadTimings()
     }
 
     @objc private func appWillEnterForeground() {
+        guard viewIfLoaded?.window != nil else { return }
+        api.resumeTopicTimingUploads()
         resumeReadTracking()
         startReadFlushTimer()
         scheduleDebouncedReadFlush()
@@ -731,15 +735,11 @@ final class VirtualizedTopicDetailViewController: ObservableViewController, UIGe
     private func flushReadTimings() {
         let snapshot = readTracker.snapshotDelta()
         guard !snapshot.timings.isEmpty else { return }
-        let api = api
-        let topicId = topicId
-        Task.detached {
-            try? await api.postTopicTimings(
-                topicId: topicId,
-                topicTime: snapshot.topicTime,
-                timings: snapshot.timings
-            )
-        }
+        api.enqueueTopicTimings(
+            topicId: topicId,
+            topicTime: snapshot.topicTime,
+            timings: snapshot.timings
+        )
     }
 
     private func handleLoadErrorIfNeeded() {

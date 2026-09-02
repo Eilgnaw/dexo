@@ -7,26 +7,6 @@ struct TopicTimingResponseAssessment: Equatable {
     let errorSummary: String?
 }
 
-struct TopicTimingCircuitBreaker {
-    static let maximumFailures = 3
-
-    private(set) var failureCount = 0
-    var isTripped: Bool { failureCount >= Self.maximumFailures }
-
-    mutating func record(_ outcome: TopicTimingOutcome) -> Bool {
-        if outcome == .success {
-            failureCount = 0
-        } else {
-            failureCount += 1
-        }
-        return isTripped
-    }
-
-    mutating func reset() {
-        failureCount = 0
-    }
-}
-
 enum DiscourseEditRequestBuilder {
     static func post(raw: String, originalRaw: String) -> [String: Any] {
         [
@@ -65,9 +45,10 @@ enum DiscourseEditRequestBuilder {
 func assessTopicTimingResponse(
     statusCode: Int?,
     data: Data?,
-    errorDescription: String?
+    errorDescription: String?,
+    response: HTTPURLResponse? = nil
 ) -> TopicTimingResponseAssessment {
-    if isCloudflareChallengeResponse(data) {
+    if isCloudflareChallengeResponse(data, response: response) {
         return TopicTimingResponseAssessment(
             outcome: .cloudflareChallenge,
             statusCode: statusCode,
@@ -241,12 +222,51 @@ final class DiscourseAPI {
     private var categoryFetchTask: Task<DiscourseCategoryList, Error>?
     private var categoryCacheGeneration = 0
     private nonisolated(unsafe) var categoryAuthChangeObserver: (any NSObjectProtocol)?
+    private nonisolated(unsafe) var topicTimingSettingsObserver: (any NSObjectProtocol)?
     private let categoryPageLoader: CategoryPageLoader?
     private let categoryChildrenLoader: CategoryChildrenLoader?
 
     private lazy var session: Session = DiscourseAPI.makeSession(
         interceptor: interceptor,
         baseURL: baseURL
+    )
+
+    private lazy var topicTimingCoordinator = TopicTimingCoordinator(
+        configuration: ForumPolicy.isLinuxDoFamily(baseURL: baseURL) ? .linuxDo : .standard,
+        canSend: { [weak self] in
+            guard let self else { return false }
+            return ForumPolicy.tracksReadTimings(baseURL: self.baseURL)
+        },
+        transport: { [weak self] batch in
+            guard let self else {
+                return TopicTimingAttempt(
+                    result: .indeterminate,
+                    errorSummary: "Timing transport was released"
+                )
+            }
+            return await self.performTopicTimingRequest(batch)
+        },
+        attemptObserver: { [weak self] batch, attempt, failureCount, trippedBreaker in
+            self?.persistTopicTimingAttempt(
+                batch: batch,
+                attempt: attempt,
+                consecutiveFailureCount: failureCount,
+                trippedBreaker: trippedBreaker
+            )
+        },
+        onCloudflareChallenge: { [weak self] in
+            guard let self, ForumPolicy.isLinuxDoFamily(baseURL: self.baseURL) else { return }
+            AppSettings.shared.linuxDoReadTimingsEnabled = false
+            NotificationCenter.default.post(
+                name: .linuxDoReadTimingsAutoDisabled,
+                object: self
+            )
+        },
+        onAuthenticationFailure: { [weak self] in
+            guard let self else { return }
+            PushSubscriptionCoordinator(api: self).retireLocalSubscriptions()
+            AuthManager.shared.invalidateExpiredAuthentication(for: self.baseURL)
+        }
     )
 
     init(forum: ForumInstance) {
@@ -288,6 +308,9 @@ final class DiscourseAPI {
     deinit {
         if let categoryAuthChangeObserver {
             NotificationCenter.default.removeObserver(categoryAuthChangeObserver)
+        }
+        if let topicTimingSettingsObserver {
+            NotificationCenter.default.removeObserver(topicTimingSettingsObserver)
         }
     }
 
@@ -401,7 +424,25 @@ final class DiscourseAPI {
                 return
             }
             MainActor.assumeIsolated {
-                self?.invalidateCategoryCache()
+                guard let self else { return }
+                self.invalidateCategoryCache()
+                self.topicTimingCoordinator.resetForEligibilityChange(
+                    isEligible: ForumPolicy.tracksReadTimings(baseURL: self.baseURL)
+                )
+            }
+        }
+
+        guard ForumPolicy.isLinuxDoFamily(baseURL: baseURL) else { return }
+        topicTimingSettingsObserver = NotificationCenter.default.addObserver(
+            forName: .linuxDoReadTimingsSettingDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.topicTimingCoordinator.resetForEligibilityChange(
+                    isEligible: ForumPolicy.tracksReadTimings(baseURL: self.baseURL)
+                )
             }
         }
     }
@@ -463,11 +504,11 @@ final class DiscourseAPI {
         if includeStoredWebCookies,
            let url = URL(string: baseURL + route.path)
         {
-            let cookieHeader = WebCookieStore.shared.cookieHeader(for: url)
+            let cookieHeader = WebCookieStore.shared.cookieHeader(for: url, includeSessionCookies: false)
             if !cookieHeader.isEmpty {
                 headers.add(name: "Cookie", value: cookieHeader)
             }
-            if let userAgent = WebCookieStore.shared.userAgent {
+            if let userAgent = WebCookieStore.shared.userAgent(for: url) {
                 headers.add(name: "User-Agent", value: userAgent)
             }
         }
@@ -731,7 +772,7 @@ final class DiscourseAPI {
             method: route.method,
             headers: ["X-Requested-With": "XMLHttpRequest"]
         ).serializingData().response
-        if isCloudflareChallengeResponse(response.data) {
+        if isCloudflareChallengeResponse(response.data, response: response.response) {
             throw DiscourseAPIError(messages: ["Cloudflare challenge required"], errorType: "challenge_required")
         }
         if let authError = authenticationFailureError(
@@ -756,7 +797,7 @@ final class DiscourseAPI {
             method: route.method,
             headers: ["X-Requested-With": "XMLHttpRequest"]
         ).serializingData().response
-        if isCloudflareChallengeResponse(response.data) {
+        if isCloudflareChallengeResponse(response.data, response: response.response) {
             throw DiscourseAPIError(messages: ["Cloudflare challenge required"], errorType: "challenge_required")
         }
         if let authError = authenticationFailureError(
@@ -786,7 +827,7 @@ final class DiscourseAPI {
             encoding: URLEncoding.default,
             headers: ["X-Requested-With": "XMLHttpRequest"]
         ).serializingData().response
-        if isCloudflareChallengeResponse(response.data) {
+        if isCloudflareChallengeResponse(response.data, response: response.response) {
             throw DiscourseAPIError(messages: ["Cloudflare challenge required"], errorType: "challenge_required")
         }
         if let authError = authenticationFailureError(
@@ -808,7 +849,7 @@ final class DiscourseAPI {
             method: route.method,
             headers: ["X-Requested-With": "XMLHttpRequest"]
         ).serializingData().response
-        if isCloudflareChallengeResponse(response.data) {
+        if isCloudflareChallengeResponse(response.data, response: response.response) {
             throw DiscourseAPIError(messages: ["Cloudflare challenge required"], errorType: "challenge_required")
         }
         if let authError = authenticationFailureError(
@@ -915,115 +956,182 @@ final class DiscourseAPI {
         }
     }
 
-    /// Record per-post read durations so Discourse marks posts as read and they
-    /// appear in the user's `/read.json` list.
-    /// - Parameters:
-    ///   - topicId: target topic
-    ///   - topicTime: total time spent on the topic in milliseconds
-    ///   - timings: per-post duration map (postNumber → milliseconds visible)
-    func postTopicTimings(topicId: Int, topicTime: Int, timings: [Int: Int]) async throws {
-        if ForumPolicy.isLinuxDoFamily(baseURL: baseURL) {
-            let generation = AppSettings.shared.linuxDoReadTimingsActivationGeneration
-            if lastTopicTimingsActivationGeneration != generation {
-                topicTimingsCircuitBreaker.reset()
-                lastTopicTimingsActivationGeneration = generation
-            }
-        }
-        let reportingEnabled = ForumPolicy.tracksReadTimings(baseURL: baseURL)
-        if reportingEnabled, lastTopicTimingsReportingEnabled == false {
-            // Manual re-enable after an automatic linux.do shutdown starts a
-            // fresh circuit-breaker window on existing API instances.
-            topicTimingsCircuitBreaker.reset()
-        }
-        lastTopicTimingsReportingEnabled = reportingEnabled
-        guard reportingEnabled else { return }
-        // Circuit breaker: a forum where timings reliably fail (anonymous, read-only,
-        // server-side disabled, …) keeps failing every visit. Stop the bleeding after
-        // a few consecutive misses for the rest of this app session.
-        if topicTimingsCircuitBreaker.isTripped {
-            debugLog("[DiscourseAPI] timings: skipped (circuit-breaker tripped, \(topicTimingsCircuitBreaker.failureCount) failures)")
+    /// Adds per-post read durations to the forum-scoped upload queue. Sampling
+    /// call sites never bypass the coordinator, including view dismissal and
+    /// background transitions.
+    func enqueueTopicTimings(topicId: Int, topicTime: Int, timings: [Int: Int]) {
+        guard ForumPolicy.tracksReadTimings(baseURL: baseURL), !timings.isEmpty else {
             return
         }
-        guard !timings.isEmpty else { return }
-        let route = DiscourseRouter.topicTimings
-        let url = baseURL + route.path
-        let stringKeyed = Dictionary(uniqueKeysWithValues: timings.map { (String($0.key), $0.value) })
-        let parameters: Parameters = [
-            "topic_id": topicId,
-            "topic_time": topicTime,
-            "timings": stringKeyed,
-        ]
-        debugLog("[DiscourseAPI] POST /topics/timings topic=\(topicId) topic_time=\(topicTime) posts=\(timings.count)")
-        let attemptedAt = Date()
-        let requestStart = Date()
-        let response = await session.request(url, method: route.method, parameters: parameters, encoding: URLEncoding.default)
-            .serializingData().response
-        let requestDuration = Int(Date().timeIntervalSince(requestStart) * 1000)
-        if let authError = authenticationFailureError(
-            statusCode: response.response?.statusCode,
-            data: response.data
-        ) {
-            throw authError
-        }
-        let assessment = assessTopicTimingResponse(
-            statusCode: response.response?.statusCode,
-            data: response.data,
-            errorDescription: response.error?.localizedDescription
+        topicTimingCoordinator.enqueue(
+            TopicTimingBatch(
+                topicId: topicId,
+                topicTime: topicTime,
+                timings: timings,
+                accountName: AuthManager.shared.username(for: baseURL)
+            )
         )
-        if assessment.outcome == .success {
-            _ = topicTimingsCircuitBreaker.record(.success)
-            debugLog("[DiscourseAPI] timings: ok (\(assessment.statusCode ?? 0))")
-            persistTopicTimingReport(
-                topicId: topicId,
-                topicTime: topicTime,
-                timings: timings,
-                attemptedAt: attemptedAt,
-                requestDuration: requestDuration,
-                statusCode: assessment.statusCode,
-                outcome: .success,
-                consecutiveFailureCount: 0,
-                trippedBreaker: false,
-                errorSummary: nil
-            )
-        } else {
-            let trippedBreaker = topicTimingsCircuitBreaker.record(assessment.outcome)
-            let summary = assessment.errorSummary ?? "Network request failed"
-            debugLog("[DiscourseAPI] timings: FAILED status=\(assessment.statusCode ?? 0) (consec=\(topicTimingsCircuitBreaker.failureCount))")
-            persistTopicTimingReport(
-                topicId: topicId,
-                topicTime: topicTime,
-                timings: timings,
-                attemptedAt: attemptedAt,
-                requestDuration: requestDuration,
-                statusCode: assessment.statusCode,
-                outcome: assessment.outcome,
-                consecutiveFailureCount: topicTimingsCircuitBreaker.failureCount,
-                trippedBreaker: trippedBreaker,
-                errorSummary: summary
-            )
-            if trippedBreaker, ForumPolicy.isLinuxDoFamily(baseURL: baseURL) {
-                AppSettings.shared.linuxDoReadTimingsEnabled = false
-                lastTopicTimingsReportingEnabled = false
-                NotificationCenter.default.post(
-                    name: .linuxDoReadTimingsAutoDisabled,
-                    object: self
-                )
-            }
-            throw DiscourseAPIError(
-                messages: [summary],
-                errorType: assessment.outcome == .cloudflareChallenge ? "challenge_required" : nil
-            )
-        }
     }
 
-    private var topicTimingsCircuitBreaker = TopicTimingCircuitBreaker()
-    private var lastTopicTimingsReportingEnabled: Bool?
-    private var lastTopicTimingsActivationGeneration: Int?
+    func suspendTopicTimingUploads() {
+        topicTimingCoordinator.suspendForBackground()
+    }
+
+    func resumeTopicTimingUploads() {
+        topicTimingCoordinator.resumeFromBackground()
+    }
+
+    private func performTopicTimingRequest(_ batch: TopicTimingBatch) async -> TopicTimingAttempt {
+        let route = DiscourseRouter.topicTimings
+        let url = baseURL + route.path
+        let stringKeyed = Dictionary(
+            uniqueKeysWithValues: batch.timings.map { (String($0.key), $0.value) }
+        )
+        let parameters: Parameters = [
+            "topic_id": batch.topicId,
+            "topic_time": batch.topicTime,
+            "timings": stringKeyed,
+        ]
+        let headers: HTTPHeaders = [
+            "Discourse-Background": "true",
+            "X-SILENCE-LOGGER": "true",
+        ]
+        debugLog(
+            "[DiscourseAPI] POST /topics/timings topic=\(batch.topicId) "
+                + "topic_time=\(batch.topicTime) posts=\(batch.timings.count)"
+        )
+
+        let attemptedAt = Date()
+        let response = await session.request(
+            url,
+            method: route.method,
+            parameters: parameters,
+            encoding: URLEncoding.default,
+            headers: headers
+        )
+        .serializingData().response
+        let requestDuration = Int(Date().timeIntervalSince(attemptedAt) * 1000)
+        let statusCode = response.response?.statusCode
+
+        if let newToken = response.response?.value(forHTTPHeaderField: "X-CSRF-Token") {
+            interceptor.updateCSRFToken(newToken)
+        }
+        if let httpResponse = response.response,
+           let responseURL = httpResponse.url,
+           let statusCode,
+           (200 ..< 300).contains(statusCode),
+           response.request?.value(forHTTPHeaderField: "User-Api-Key") == nil
+        {
+            WebCookieStore.shared.mergeResponseHeaders(
+                httpResponse.allHeaderFields,
+                for: responseURL,
+                includeSessionCookies: true
+            )
+        }
+
+        let result: TopicTimingAttempt.Result
+        let errorSummary: String?
+        let retryAfter: TimeInterval?
+
+        if isCloudflareChallengeResponse(response.data, response: response.response) {
+            result = .cloudflareChallenge
+            errorSummary = "Cloudflare challenge required"
+            retryAfter = nil
+        } else if let statusCode, (200 ..< 300).contains(statusCode) {
+            result = .success
+            errorSummary = nil
+            retryAfter = nil
+        } else if isDiscourseAuthenticationFailure(statusCode: statusCode, data: response.data) {
+            result = .authenticationFailure
+            errorSummary = topicTimingErrorSummary(
+                statusCode: statusCode,
+                data: response.data,
+                fallback: "Authentication expired"
+            )
+            retryAfter = nil
+        } else if statusCode == 403 || statusCode == 422 {
+            // The timing route deliberately skips the interceptor's immediate
+            // retry. Invalidate now so the coordinator's one delayed retry
+            // obtains a fresh token at least 30 seconds later.
+            interceptor.invalidateCSRFToken()
+            result = .csrfRejected
+            errorSummary = topicTimingErrorSummary(
+                statusCode: statusCode,
+                data: response.data,
+                fallback: "CSRF token rejected"
+            )
+            retryAfter = nil
+        } else if let statusCode, Self.retryableTopicTimingStatusCodes.contains(statusCode) {
+            result = .retryableFailure
+            errorSummary = topicTimingErrorSummary(
+                statusCode: statusCode,
+                data: response.data,
+                fallback: "HTTP \(statusCode)"
+            )
+            retryAfter = Self.retryAfterDelay(from: response.response)
+        } else if statusCode == nil {
+            result = .indeterminate
+            errorSummary = response.error?.localizedDescription ?? "Network request failed"
+            retryAfter = nil
+        } else {
+            result = .fatalFailure
+            errorSummary = topicTimingErrorSummary(
+                statusCode: statusCode,
+                data: response.data,
+                fallback: "HTTP \(statusCode ?? 0)"
+            )
+            retryAfter = nil
+        }
+
+        debugLog(
+            "[DiscourseAPI] timings: \(String(describing: result)) "
+                + "status=\(statusCode ?? 0)"
+        )
+        return TopicTimingAttempt(
+            result: result,
+            statusCode: statusCode,
+            retryAfter: retryAfter,
+            attemptedAt: attemptedAt,
+            requestDuration: requestDuration,
+            errorSummary: errorSummary
+        )
+    }
+
+    private func persistTopicTimingAttempt(
+        batch: TopicTimingBatch,
+        attempt: TopicTimingAttempt,
+        consecutiveFailureCount: Int,
+        trippedBreaker: Bool
+    ) {
+        let outcome: TopicTimingOutcome
+        switch attempt.result {
+        case .success:
+            outcome = .success
+        case .cloudflareChallenge:
+            outcome = .cloudflareChallenge
+        default:
+            outcome = .failure
+        }
+        persistTopicTimingReport(
+            topicId: batch.topicId,
+            topicTime: batch.topicTime,
+            timings: batch.timings,
+            accountName: batch.accountName,
+            attemptedAt: attempt.attemptedAt,
+            requestDuration: attempt.requestDuration,
+            statusCode: attempt.statusCode,
+            outcome: outcome,
+            consecutiveFailureCount: consecutiveFailureCount,
+            trippedBreaker: trippedBreaker,
+            errorSummary: attempt.errorSummary
+        )
+    }
 
     private func persistTopicTimingReport(
         topicId: Int,
         topicTime: Int,
         timings: [Int: Int],
+        accountName: String?,
         attemptedAt: Date,
         requestDuration: Int,
         statusCode: Int?,
@@ -1036,7 +1144,7 @@ final class DiscourseAPI {
         var report = TopicTimingReport(
             forumId: forumID,
             baseURL: baseURL,
-            accountName: AuthManager.shared.username(for: baseURL),
+            accountName: accountName,
             topicId: topicId,
             attemptedAt: attemptedAt,
             topicTime: topicTime,
@@ -1056,14 +1164,66 @@ final class DiscourseAPI {
         }
     }
 
+    private func topicTimingErrorSummary(
+        statusCode: Int?,
+        data: Data?,
+        fallback: String
+    ) -> String {
+        if let data,
+           let response = try? JSONDecoder().decode(DiscourseErrorResponse.self, from: data),
+           !response.errors.isEmpty
+        {
+            return String(response.errors.joined(separator: " ").prefix(300))
+        }
+        if let data,
+           let response = try? JSONDecoder().decode(DiscourseFailedResponse.self, from: data),
+           let message = response.message,
+           !message.isEmpty
+        {
+            return String(message.prefix(300))
+        }
+        return fallback
+    }
+
+    static func retryAfterDelay(
+        from response: HTTPURLResponse?,
+        now: Date = Date()
+    ) -> TimeInterval? {
+        guard let rawValue = response?.value(forHTTPHeaderField: "Retry-After")?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+            !rawValue.isEmpty
+        else { return nil }
+
+        if let seconds = TimeInterval(rawValue) {
+            return max(0, seconds)
+        }
+
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        for format in [
+            "EEE',' dd MMM yyyy HH':'mm':'ss z",
+            "EEEE',' dd-MMM-yy HH':'mm':'ss z",
+            "EEE MMM d HH':'mm':'ss yyyy",
+        ] {
+            formatter.dateFormat = format
+            if let date = formatter.date(from: rawValue) {
+                return max(0, date.timeIntervalSince(now))
+            }
+        }
+        return nil
+    }
+
+    private static let retryableTopicTimingStatusCodes: Set<Int> = [
+        429, 500, 502, 503, 504,
+    ]
+
     /// Fetch the shared_session_key from the main site HTML meta tag.
     func fetchSharedSessionKey() async -> String? {
         guard let url = URL(string: baseURL) else { return nil }
         var req = URLRequest(url: url)
         req.setValue("text/html", forHTTPHeaderField: "Accept")
-        let cookieHeader = WebCookieStore.shared.cookieHeader(for: url)
-        if !cookieHeader.isEmpty { req.setValue(cookieHeader, forHTTPHeaderField: "Cookie") }
-        if let ua = WebCookieStore.shared.userAgent { req.setValue(ua, forHTTPHeaderField: "User-Agent") }
+        // The interceptor selects API-key, web-login, or anonymous headers.
         let response = await session.request(req).serializingData().response
         if authenticationFailureError(
             statusCode: response.response?.statusCode,
@@ -1227,12 +1387,16 @@ final class DiscourseAPI {
         // that would clobber the `_t` session cookie and log the user out silently.
         if let httpResponse = response.response, let url = httpResponse.url,
            let statusCode = response.response?.statusCode, (200 ..< 300).contains(statusCode),
-           KeychainHelper.getUserApiKey(for: baseURL) == AuthManager.webAuthSentinel
+           response.request?.value(forHTTPHeaderField: "User-Api-Key") == nil
         {
-            WebCookieStore.shared.mergeResponseHeaders(httpResponse.allHeaderFields, for: url)
+            WebCookieStore.shared.mergeResponseHeaders(
+                httpResponse.allHeaderFields,
+                for: url,
+                includeSessionCookies: KeychainHelper.getUserApiKey(for: baseURL) == AuthManager.webAuthSentinel
+            )
         }
 
-        if isCloudflareChallengeResponse(response.data) {
+        if isCloudflareChallengeResponse(response.data, response: response.response) {
             throw DiscourseAPIError(messages: ["Cloudflare challenge required"], errorType: "challenge_required")
         }
 
@@ -1345,15 +1509,22 @@ struct DiscourseAPIError: LocalizedError {
     }
 }
 
-/// Detects Cloudflare's challenge interstitial in a response body. Cloudflare
-/// challenges may arrive with any status code (200, 403, 503), so the body is
-/// the only reliable signal.
-func isCloudflareChallengeResponse(_ data: Data?) -> Bool {
+/// Prefer Cloudflare's explicit mitigation header. Body fallback is limited
+/// to HTML: a valid JSON post quoting challenge markup is not a challenge.
+func isCloudflareChallengeResponse(_ data: Data?, response: HTTPURLResponse? = nil) -> Bool {
+    if response?.value(forHTTPHeaderField: "cf-mitigated")?.lowercased() == "challenge" {
+        return true
+    }
+    if let contentType = response?.mimeType, contentType != "text/html" {
+        return false
+    }
     guard let data, !data.isEmpty else { return false }
     // Cap the scan — Cloudflare pages are small HTML; real JSON can be huge.
-    let prefix = data.prefix(65536)
-    guard let snippet = String(data: prefix, encoding: .utf8) else { return false }
-    return snippet.contains("Just a moment...")
+    let snippet = String(decoding: data.prefix(65536), as: UTF8.self)
+        .trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: "\u{feff}")))
+        .lowercased()
+    guard snippet.hasPrefix("<") else { return false }
+    return snippet.contains("<title>just a moment...</title>")
         || snippet.contains("cf-browser-verification")
         || snippet.contains("cf-challenge-running")
         || snippet.contains("__cf_chl_")
@@ -1369,6 +1540,36 @@ func shouldAttachStoredForumAuthentication(to requestURL: URL, baseURL: String) 
         return true
     }
     return requestURL != basicInfoURL
+}
+
+/// Timing uploads own their delayed CSRF retry in `TopicTimingCoordinator`.
+/// Letting the generic interceptor retry a challenged POST immediately would
+/// turn one Cloudflare response into an extra CSRF GET and another POST.
+func allowsImmediateMutatingAuthRetry(for requestURL: URL?) -> Bool {
+    requestURL?.path.hasSuffix(DiscourseRouter.topicTimings.path) != true
+}
+
+/// API-key authentication stays independent of browser state. Anonymous
+/// requests reuse only challenge cookies; web login also needs session cookies.
+func applyingStoredWebSession(
+    to urlRequest: URLRequest,
+    userApiKey: String?,
+    cookieStore: WebCookieStore = .shared
+) -> URLRequest {
+    guard userApiKey == nil || userApiKey == AuthManager.webAuthSentinel,
+          let url = urlRequest.url
+    else { return urlRequest }
+    var request = urlRequest
+    let header = cookieStore.cookieHeader(
+        for: url, includeSessionCookies: userApiKey == AuthManager.webAuthSentinel
+    )
+    if !header.isEmpty {
+        request.setValue(header, forHTTPHeaderField: "Cookie")
+    }
+    if let userAgent = cookieStore.userAgent(for: url) {
+        request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+    }
+    return request
 }
 
 private final class DiscourseAuthInterceptor: RequestInterceptor {
@@ -1412,6 +1613,8 @@ private final class DiscourseAuthInterceptor: RequestInterceptor {
             to: requestURL,
             baseURL: baseURL
         )
+        let storedUserApiKey = shouldAttachStoredAuthentication
+            ? KeychainHelper.getUserApiKey(for: baseURL) : nil
         if !shouldAttachStoredAuthentication {
             // Also strip an explicitly supplied key so every basic-info probe
             // remains anonymous. Challenge cookies and their matching
@@ -1419,19 +1622,17 @@ private final class DiscourseAuthInterceptor: RequestInterceptor {
             request.setValue(nil, forHTTPHeaderField: "User-Api-Key")
         }
 
+        if shouldAttachStoredAuthentication {
+            request = applyingStoredWebSession(
+                to: request,
+                userApiKey: request.value(forHTTPHeaderField: "User-Api-Key") ?? storedUserApiKey
+            )
+        }
+
         if shouldAttachStoredAuthentication,
-           let userApiKey = KeychainHelper.getUserApiKey(for: baseURL)
+           let userApiKey = storedUserApiKey
         {
             if userApiKey == AuthManager.webAuthSentinel {
-                if let url = request.url {
-                    let header = WebCookieStore.shared.cookieHeader(for: url)
-                    if !header.isEmpty {
-                        request.setValue(header, forHTTPHeaderField: "Cookie")
-                    }
-                    if let ua = WebCookieStore.shared.userAgent {
-                        request.setValue(ua, forHTTPHeaderField: "User-Agent")
-                    }
-                }
                 let isMutating = request.httpMethod == "POST" || request.httpMethod == "PUT" || request.httpMethod == "DELETE"
                 if isMutating {
                     if request.value(forHTTPHeaderField: "Accept") == nil {
@@ -1469,6 +1670,7 @@ private final class DiscourseAuthInterceptor: RequestInterceptor {
     func retry(_ request: Request, for session: Session, dueTo error: any Error, completion: @escaping (RetryResult) -> Void) {
         guard let userApiKey = KeychainHelper.getUserApiKey(for: baseURL),
               userApiKey == AuthManager.webAuthSentinel,
+              allowsImmediateMutatingAuthRetry(for: request.request?.url),
               request.retryCount == 0,
               let httpMethod = request.request?.httpMethod,
               httpMethod == "POST" || httpMethod == "PUT" || httpMethod == "DELETE"
@@ -1548,7 +1750,7 @@ private final class DiscourseAuthInterceptor: RequestInterceptor {
         req.setValue("application/json", forHTTPHeaderField: "Accept")
         let cookieHeader = WebCookieStore.shared.cookieHeader(for: url)
         if !cookieHeader.isEmpty { req.setValue(cookieHeader, forHTTPHeaderField: "Cookie") }
-        if let ua = WebCookieStore.shared.userAgent { req.setValue(ua, forHTTPHeaderField: "User-Agent") }
+        if let ua = WebCookieStore.shared.userAgent(for: url) { req.setValue(ua, forHTTPHeaderField: "User-Agent") }
         session.request(req).responseData { response in
             guard let data = response.data,
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
