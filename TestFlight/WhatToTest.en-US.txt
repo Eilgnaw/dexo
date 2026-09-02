@@ -1,6 +1,6 @@
-What's New
+Read-time Reporting
 
-- Improved linux.do web-login and Cloudflare verification-state synchronization, and aligned read-time uploads with browser topic referrers, XHR, Fetch Metadata, and Discourse request headers.
-- Low-frequency read-time reporting is enabled by default for linux.do web-login accounts. Uploads are consolidated, serialized, and rate-limited; API-key and anonymous sessions do not report.
-- Added “Read-time Reporting” under linux.do's Me page, including a synchronized status, switch, and detailed success, failure, HTTP-status, and error history.
-- When Cloudflare requests verification, the current upload pauses and offers two choices: turn reporting off or open site verification.
+- Sign in to linux.do using web login, then open Me > Read-time Reporting and confirm the switch matches the status shown on the Me page.
+- Open a topic and read normally. Confirm read time is uploaded at a low frequency and that success, failure, and error details appear in Read-time Report History.
+- Confirm anonymous sessions and User API Key sessions do not upload read time.
+- If an upload triggers Cloudflare verification, confirm you can choose Turn Off Reporting or Open Verification. Reporting should resume after verification is completed.
