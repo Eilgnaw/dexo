@@ -960,9 +960,16 @@ final class DiscourseAPI {
     /// call sites never bypass the coordinator, including view dismissal and
     /// background transitions.
     func enqueueTopicTimings(topicId: Int, topicTime: Int, timings: [Int: Int]) {
-        guard ForumPolicy.tracksReadTimings(baseURL: baseURL), !timings.isEmpty else {
+        let isEligible = ForumPolicy.tracksReadTimings(baseURL: baseURL)
+        guard isEligible, !timings.isEmpty else {
+            TopicTimingDiagnostics.log(
+                "enqueue skipped eligible=\(isEligible) topicTimeMs=\(topicTime) posts=\(timings.count)"
+            )
             return
         }
+        TopicTimingDiagnostics.log(
+            "enqueue topic=\(topicId) topicTimeMs=\(topicTime) posts=\(timings.count)"
+        )
         topicTimingCoordinator.enqueue(
             TopicTimingBatch(
                 topicId: topicId,
@@ -982,36 +989,53 @@ final class DiscourseAPI {
     }
 
     private func performTopicTimingRequest(_ batch: TopicTimingBatch) async -> TopicTimingAttempt {
-        let route = DiscourseRouter.topicTimings
-        let url = baseURL + route.path
-        let stringKeyed = Dictionary(
-            uniqueKeysWithValues: batch.timings.map { (String($0.key), $0.value) }
-        )
-        let parameters: Parameters = [
-            "topic_id": batch.topicId,
-            "topic_time": batch.topicTime,
-            "timings": stringKeyed,
-        ]
-        let headers: HTTPHeaders = [
-            "Discourse-Background": "true",
-            "X-SILENCE-LOGGER": "true",
-        ]
+        guard let request = TopicTimingRequestBuilder.makeRequest(
+            baseURL: baseURL,
+            batch: batch
+        ) else {
+            return TopicTimingAttempt(
+                result: .fatalFailure,
+                errorSummary: "Invalid timing request URL"
+            )
+        }
         debugLog(
             "[DiscourseAPI] POST /topics/timings topic=\(batch.topicId) "
-                + "topic_time=\(batch.topicTime) posts=\(batch.timings.count)"
+                + "topic_time=\(batch.topicTime) posts=\(batch.timings.count) "
+                + "browser_headers=true body_length=\(request.httpBody?.count ?? 0)"
         )
+        if let requestURL = request.url {
+            TopicTimingDiagnostics.log(
+                "cookie state topic=\(batch.topicId) "
+                    + WebCookieStore.shared.diagnosticSummary(for: requestURL)
+            )
+        }
 
         let attemptedAt = Date()
-        let response = await session.request(
-            url,
-            method: route.method,
-            parameters: parameters,
-            encoding: URLEncoding.default,
-            headers: headers
-        )
-        .serializingData().response
+        let response = await session.request(request).serializingData().response
         let requestDuration = Int(Date().timeIntervalSince(attemptedAt) * 1000)
         let statusCode = response.response?.statusCode
+        let finalRequest = response.request
+        let cfMitigated = response.response?
+            .value(forHTTPHeaderField: "cf-mitigated") ?? "none"
+        let hasCookie = finalRequest?.value(forHTTPHeaderField: "Cookie") != nil
+        let hasUserAgent = finalRequest?.value(forHTTPHeaderField: "User-Agent") != nil
+        let hasCSRF = finalRequest?.value(forHTTPHeaderField: "X-CSRF-Token") != nil
+        let hasOrigin = finalRequest?.value(forHTTPHeaderField: "Origin") != nil
+        let hasReferer = finalRequest?.value(forHTTPHeaderField: "Referer") != nil
+        let hasXHR = finalRequest?.value(forHTTPHeaderField: "X-Requested-With") != nil
+        let finalCookieHeader = finalRequest?.value(forHTTPHeaderField: "Cookie") ?? ""
+        let clearanceCount = WebCookieStore.cookieHeaderValues(
+            named: "cf_clearance",
+            in: finalCookieHeader
+        ).count
+        TopicTimingDiagnostics.log(
+            "response topic=\(batch.topicId) topicTimeMs=\(batch.topicTime) "
+                + "status=\(statusCode ?? 0) durationMs=\(requestDuration) "
+                + "cfMitigated=\(cfMitigated) "
+                + "cookie=\(hasCookie) userAgent=\(hasUserAgent) csrf=\(hasCSRF) "
+                + "origin=\(hasOrigin) referer=\(hasReferer) xhr=\(hasXHR) "
+                + "cfClearanceCount=\(clearanceCount)"
+        )
 
         if let newToken = response.response?.value(forHTTPHeaderField: "X-CSRF-Token") {
             interceptor.updateCSRFToken(newToken)
@@ -1034,6 +1058,9 @@ final class DiscourseAPI {
         let retryAfter: TimeInterval?
 
         if isCloudflareChallengeResponse(response.data, response: response.response) {
+            if let finalRequest {
+                WebCookieStore.shared.rejectClearanceSent(with: finalRequest)
+            }
             result = .cloudflareChallenge
             errorSummary = "Cloudflare challenge required"
             retryAfter = nil
@@ -1085,6 +1112,10 @@ final class DiscourseAPI {
 
         debugLog(
             "[DiscourseAPI] timings: \(String(describing: result)) "
+                + "status=\(statusCode ?? 0)"
+        )
+        TopicTimingDiagnostics.log(
+            "classified topic=\(batch.topicId) result=\(String(describing: result)) "
                 + "status=\(statusCode ?? 0)"
         )
         return TopicTimingAttempt(

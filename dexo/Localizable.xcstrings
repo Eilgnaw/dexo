@@ -1032,6 +1032,22 @@
         }
       }
     },
+    "compose.category.required" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Select a category before publishing."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "发布前请选择分类。"
+          }
+        }
+      }
+    },
     "compose.category.select" : {
       "localizations" : {
         "en" : {
@@ -1252,6 +1268,182 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "DoH 代理不可用"
+          }
+        }
+      }
+    },
+    "edit.discard.message" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your unsaved changes will be lost."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "尚未保存的修改将会丢失。"
+          }
+        }
+      }
+    },
+    "edit.discard.title" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Discard Changes?"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "放弃修改？"
+          }
+        }
+      }
+    },
+    "edit.permission.changed" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This content can no longer be edited. It may be outside the editing time limit."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "该内容目前已无法编辑，可能已经超过编辑时限。"
+          }
+        }
+      }
+    },
+    "edit.post.context %lld %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Post #%1$lld · @%2$@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "第 %1$lld 楼 · @%2$@"
+          }
+        }
+      }
+    },
+    "edit.post.menu" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Edit Post"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "编辑帖子"
+          }
+        }
+      }
+    },
+    "edit.post.title" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Edit Post"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "编辑帖子"
+          }
+        }
+      }
+    },
+    "edit.save.failed" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Unable to Save Changes"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "无法保存修改"
+          }
+        }
+      }
+    },
+    "edit.topic.menu" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Edit Topic"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "编辑主题"
+          }
+        }
+      }
+    },
+    "edit.topic.partial.message %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The body was saved, but the topic details were not. You can retry the remaining changes.\n\n%@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正文已保存，但主题信息保存失败。你可以重试剩余修改。\n\n%@"
+          }
+        }
+      }
+    },
+    "edit.topic.partial.title" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Topic Partially Saved"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "主题已部分保存"
+          }
+        }
+      }
+    },
+    "edit.topic.title" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Edit Topic"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "编辑主题"
           }
         }
       }
@@ -1544,198 +1736,6 @@
         }
       }
     },
-    "compose.category.required" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Select a category before publishing."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "发布前请选择分类。"
-          }
-        }
-      }
-    },
-    "edit.discard.message" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Your unsaved changes will be lost."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "尚未保存的修改将会丢失。"
-          }
-        }
-      }
-    },
-    "edit.discard.title" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Discard Changes?"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "放弃修改？"
-          }
-        }
-      }
-    },
-    "edit.permission.changed" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This content can no longer be edited. It may be outside the editing time limit."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "该内容目前已无法编辑，可能已经超过编辑时限。"
-          }
-        }
-      }
-    },
-    "edit.post.context %lld %@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Post #%1$lld · @%2$@"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "第 %1$lld 楼 · @%2$@"
-          }
-        }
-      }
-    },
-    "edit.post.menu" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Edit Post"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "编辑帖子"
-          }
-        }
-      }
-    },
-    "edit.post.title" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Edit Post"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "编辑帖子"
-          }
-        }
-      }
-    },
-    "edit.save.failed" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Unable to Save Changes"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "无法保存修改"
-          }
-        }
-      }
-    },
-    "edit.topic.menu" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Edit Topic"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "编辑主题"
-          }
-        }
-      }
-    },
-    "edit.topic.partial.message %@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The body was saved, but the topic details were not. You can retry the remaining changes.\n\n%@"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "正文已保存，但主题信息保存失败。你可以重试剩余修改。\n\n%@"
-          }
-        }
-      }
-    },
-    "edit.topic.partial.title" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Topic Partially Saved"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "主题已部分保存"
-          }
-        }
-      }
-    },
-    "edit.topic.title" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Edit Topic"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "编辑主题"
-          }
-        }
-      }
-    },
     "feedback.action.submit" : {
       "localizations" : {
         "en" : {
@@ -1976,38 +1976,6 @@
         }
       }
     },
-    "forum.auto_open.message" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Auto-open this forum on launch?"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "是否在启动时自动打开该论坛？"
-          }
-        }
-      }
-    },
-    "forum.auto_open.title" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Auto-open Forum"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "自动打开论坛"
-          }
-        }
-      }
-    },
     "forum_browser.open_in_system_browser" : {
       "localizations" : {
         "en" : {
@@ -2036,6 +2004,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "浏览器"
+          }
+        }
+      }
+    },
+    "forum.auto_open.message" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auto-open this forum on launch?"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "是否在启动时自动打开该论坛？"
+          }
+        }
+      }
+    },
+    "forum.auto_open.title" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auto-open Forum"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自动打开论坛"
           }
         }
       }
@@ -2971,26 +2971,66 @@
     },
     "me.stats.compact.billions %@" : {
       "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "%@B" } },
-        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "%@B" } }
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@B"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@B"
+          }
+        }
       }
     },
     "me.stats.compact.millions %@" : {
       "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "%@M" } },
-        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "%@M" } }
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@M"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@M"
+          }
+        }
       }
     },
     "me.stats.compact.thousands %@" : {
       "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "%@k" } },
-        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "%@k" } }
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@k"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@k"
+          }
+        }
       }
     },
     "me.stats.compact.trillions %@" : {
       "localizations" : {
-        "en" : { "stringUnit" : { "state" : "translated", "value" : "%@T" } },
-        "zh-Hans" : { "stringUnit" : { "state" : "translated", "value" : "%@T" } }
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@T"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@T"
+          }
+        }
       }
     },
     "me.stats.days" : {
@@ -3882,38 +3922,6 @@
         }
       }
     },
-    "push.login_prompt.loading" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Enabling push notifications…"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "正在开启推送通知…"
-          }
-        }
-      }
-    },
-    "push.login_prompt.message" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Stay up to date with replies, mentions, and messages. Notifications are encrypted and decrypted only on this device."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "及时接收回复、提及和消息。通知内容会被加密，并且仅在此设备上解密。"
-          }
-        }
-      }
-    },
     "push.error.apns_timeout" : {
       "localizations" : {
         "en" : {
@@ -4054,6 +4062,38 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "推送通知"
+          }
+        }
+      }
+    },
+    "push.login_prompt.loading" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enabling push notifications…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在开启推送通知…"
+          }
+        }
+      }
+    },
+    "push.login_prompt.message" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stay up to date with replies, mentions, and messages. Notifications are encrypted and decrypted only on this device."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "及时接收回复、提及和消息。通知内容会被加密，并且仅在此设备上解密。"
           }
         }
       }
@@ -6090,6 +6130,22 @@
         }
       }
     },
+    "settings.section.read_timings" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Read-time Reporting"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "阅读时间上报"
+          }
+        }
+      }
+    },
     "settings.section.reading" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -6103,22 +6159,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "阅读记录"
-          }
-        }
-      }
-    },
-    "settings.section.read_timings" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Read-time Reporting"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "阅读时间上报"
           }
         }
       }
@@ -6952,22 +6992,6 @@
         }
       }
     },
-    "timing_reports.clear.message" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "This deletes diagnostic report history only. Local read history is not affected."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "只会删除上报诊断记录，不会影响本地已读历史。"
-          }
-        }
-      }
-    },
     "timing_reports.clear.linux_do.message" : {
       "localizations" : {
         "en" : {
@@ -6980,6 +7004,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "只会删除 linux.do 上报诊断记录，不会影响本地已读历史或其他论坛的记录。"
+          }
+        }
+      }
+    },
+    "timing_reports.clear.message" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This deletes diagnostic report history only. Local read history is not affected."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "只会删除上报诊断记录，不会影响本地已读历史。"
           }
         }
       }
@@ -7204,6 +7244,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@ 秒"
+          }
+        }
+      }
+    },
+    "timing_reports.duration_milliseconds %lld" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld ms"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 毫秒"
           }
         }
       }
@@ -7975,6 +8031,7 @@
       }
     },
     "user.local_block.compact" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {

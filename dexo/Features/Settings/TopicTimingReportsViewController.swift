@@ -160,6 +160,9 @@ final class TopicTimingReportsViewController: BaseViewController {
     }
 
     private static func duration(_ milliseconds: Int) -> String {
+        if milliseconds < 1000 {
+            return String(localized: "timing_reports.duration_milliseconds \(milliseconds)")
+        }
         let seconds = Double(milliseconds) / 1000
         return String(localized: "timing_reports.duration \(String(format: "%.1f", seconds))")
     }

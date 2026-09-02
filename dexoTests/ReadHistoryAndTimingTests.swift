@@ -353,3 +353,38 @@ final class TopicTimingPolicyTests: XCTestCase {
         )
     }
 }
+
+final class TopicReadTrackerTests: XCTestCase {
+    func testEmptySnapshotKeepsTopicTimeForFirstVisiblePostBatch() {
+        var currentTime: CFTimeInterval = 0
+        let tracker = TopicReadTracker(now: { currentTime })
+        tracker.startSession()
+
+        currentTime = 2
+        let emptySnapshot = tracker.snapshotDelta()
+        XCTAssertEqual(emptySnapshot.topicTime, 0)
+        XCTAssertTrue(emptySnapshot.timings.isEmpty)
+
+        tracker.recordVisible(postNumber: 1)
+        currentTime = 4
+        tracker.recordHidden(postNumber: 1)
+        let visibleSnapshot = tracker.snapshotDelta()
+
+        XCTAssertEqual(visibleSnapshot.topicTime, 4_000)
+        XCTAssertEqual(visibleSnapshot.timings, [1: 2_000])
+    }
+
+    func testSessionStartAlignsPostsRegisteredBeforeViewAppears() {
+        var currentTime: CFTimeInterval = 0
+        let tracker = TopicReadTracker(now: { currentTime })
+        tracker.recordVisible(postNumber: 1)
+
+        currentTime = 2
+        tracker.startSession()
+        currentTime = 3.25
+        let snapshot = tracker.snapshotDelta()
+
+        XCTAssertEqual(snapshot.topicTime, 1_250)
+        XCTAssertEqual(snapshot.timings, [1: 1_250])
+    }
+}

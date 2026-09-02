@@ -351,7 +351,7 @@ final class TopicTimingCoordinator {
     private func nextBatch(for topicId: Int) -> TopicTimingBatch? {
         guard let pending = pendingByTopic[topicId] else { return nil }
         let timings = pending.timings.reduce(into: [Int: Int]()) { result, item in
-            if item.value > 0 {
+            if item.value >= Self.minimumValuePerRequest {
                 result[item.key] = min(Self.maximumValuePerRequest, item.value)
             }
         }
@@ -369,10 +369,12 @@ final class TopicTimingCoordinator {
 
     private func consume(_ batch: TopicTimingBatch) {
         guard var pending = pendingByTopic[batch.topicId] else { return }
-        pending.topicTime = max(0, pending.topicTime - batch.topicTime)
+        let remainingTopicTime = max(0, pending.topicTime - batch.topicTime)
+        pending.topicTime = remainingTopicTime >= Self.minimumValuePerRequest
+            ? remainingTopicTime : 0
         for (postNumber, duration) in batch.timings {
             let remaining = max(0, pending.timings[postNumber, default: 0] - duration)
-            if remaining == 0 {
+            if remaining < Self.minimumValuePerRequest {
                 pending.timings.removeValue(forKey: postNumber)
             } else {
                 pending.timings[postNumber] = remaining
@@ -432,4 +434,5 @@ final class TopicTimingCoordinator {
     }
 
     private static let maximumValuePerRequest = 60 * 1000
+    private static let minimumValuePerRequest = 1000
 }

@@ -66,6 +66,94 @@ final class WebCookieStoreTests: XCTestCase {
         }
     }
 
+    func testCriticalCookieVariantsSendOnlyNewestValueRegardlessOfInputOrder() throws {
+        let now = Date()
+        for reversed in [false, true] {
+            try withStore { store, _ in
+                let url = URL(string: "https://forum.example.com/topics/timings")!
+                let older = try cookie(
+                    "cf_clearance",
+                    value: "older",
+                    domain: ".forum.example.com",
+                    expires: now.addingTimeInterval(60 * 60)
+                )
+                let newer = try cookie(
+                    "cf_clearance",
+                    value: "newer",
+                    domain: "forum.example.com",
+                    expires: now.addingTimeInterval(24 * 60 * 60)
+                )
+                store.setCookies(reversed ? [newer, older] : [older, newer])
+
+                let header = store.cookieHeader(for: url)
+                XCTAssertEqual(
+                    WebCookieStore.cookieHeaderValues(named: "cf_clearance", in: header),
+                    ["newer"]
+                )
+                XCTAssertFalse(header.contains("older"))
+            }
+        }
+    }
+
+    func testRejectedClearanceCannotBeRevivedButNewValueIsAccepted() throws {
+        try withStore { store, _ in
+            let url = URL(string: "https://linux.do/topics/timings")!
+            let rejected = try cookie("cf_clearance", value: "rejected", domain: "linux.do")
+            store.setCookies([rejected])
+            var request = URLRequest(url: url)
+            request.setValue("_t=login; cf_clearance=rejected", forHTTPHeaderField: "Cookie")
+
+            store.rejectClearanceSent(with: request)
+            XCTAssertFalse(store.cookieHeader(for: url).contains("cf_clearance="))
+
+            store.setCookies([rejected])
+            XCTAssertFalse(store.cookieHeader(for: url).contains("cf_clearance="))
+
+            store.setCookies([
+                try cookie("cf_clearance", value: "fresh", domain: ".linux.do"),
+            ])
+            XCTAssertEqual(
+                WebCookieStore.cookieHeaderValues(
+                    named: "cf_clearance",
+                    in: store.cookieHeader(for: url)
+                ),
+                ["fresh"]
+            )
+        }
+    }
+
+    func testOlderWebViewClearanceCannotOverwriteNewerNativeValue() throws {
+        try withStore { store, _ in
+            let url = URL(string: "https://linux.do/challenge")!
+            let now = Date()
+            let initial = try cookie(
+                "cf_clearance", value: "initial", domain: "linux.do",
+                expires: now.addingTimeInterval(30 * 60)
+            )
+            store.setCookies([initial])
+            let baseline = store.snapshot(for: url)
+            store.setCookies([
+                try cookie(
+                    "cf_clearance", value: "native-new", domain: "linux.do",
+                    expires: now.addingTimeInterval(24 * 60 * 60)
+                ),
+            ])
+            let staleWebView = try cookie(
+                "cf_clearance", value: "web-stale", domain: ".linux.do",
+                expires: now.addingTimeInterval(60 * 60)
+            )
+
+            store.mergeWebViewCookies([staleWebView], for: url, since: baseline)
+            XCTAssertEqual(
+                WebCookieStore.cookieHeaderValues(
+                    named: "cf_clearance",
+                    in: store.cookieHeader(for: url)
+                ),
+                ["native-new"]
+            )
+        }
+    }
+
     func testBrowserRotationAndDeletionApplyOnlyToItsForum() throws {
         try withStore { store, _ in
             let url = URL(string: "https://forum.example.com")!
@@ -168,6 +256,40 @@ final class WebCookieStoreTests: XCTestCase {
         }
     }
 
+    func testTimingRequestKeepsBrowserHeadersWhenWebSessionIsApplied() throws {
+        try withStore { store, _ in
+            let url = URL(string: "https://linux.do/topics/timings")!
+            store.setCookies([
+                try cookie("cf_clearance", value: "clearance", domain: "linux.do"),
+                try cookie("_t", value: "login", domain: "linux.do"),
+            ])
+            store.setUserAgent("Mobile Safari", for: url)
+            let baseRequest = try XCTUnwrap(
+                TopicTimingRequestBuilder.makeRequest(
+                    baseURL: "https://linux.do",
+                    batch: TopicTimingBatch(topicId: 42, topicTime: 1_000, timings: [1: 1_000])
+                )
+            )
+
+            let adapted = applyingStoredWebSession(
+                to: baseRequest,
+                userApiKey: AuthManager.webAuthSentinel,
+                cookieStore: store
+            )
+
+            XCTAssertEqual(adapted.value(forHTTPHeaderField: "User-Agent"), "Mobile Safari")
+            XCTAssertEqual(
+                Set((adapted.value(forHTTPHeaderField: "Cookie") ?? "").components(separatedBy: "; ")),
+                ["cf_clearance=clearance", "_t=login"]
+            )
+            XCTAssertEqual(adapted.value(forHTTPHeaderField: "Origin"), "https://linux.do")
+            XCTAssertEqual(adapted.value(forHTTPHeaderField: "Referer"), "https://linux.do/t/topic/42")
+            XCTAssertEqual(adapted.value(forHTTPHeaderField: "X-Requested-With"), "XMLHttpRequest")
+            XCTAssertEqual(adapted.value(forHTTPHeaderField: "Discourse-Present"), "true")
+            XCTAssertEqual(adapted.value(forHTTPHeaderField: "Discourse-Logged-In"), "true")
+        }
+    }
+
     func testAnonymousResponsesOnlyUpdateChallengeCookies() throws {
         try withStore { store, _ in
             let url = URL(string: "https://forum.example.com/latest.json")!
@@ -230,9 +352,19 @@ final class WebCookieStoreTests: XCTestCase {
         try body(WebCookieStore(directory: directory), directory)
     }
 
-    private func cookie(_ name: String, value: String, domain: String = "forum.example.com", path: String = "/") throws -> HTTPCookie {
-        try XCTUnwrap(HTTPCookie(properties: [
+    private func cookie(
+        _ name: String,
+        value: String,
+        domain: String = "forum.example.com",
+        path: String = "/",
+        expires: Date? = nil
+    ) throws -> HTTPCookie {
+        var properties: [HTTPCookiePropertyKey: Any] = [
             .name: name, .value: value, .domain: domain, .path: path, .secure: "TRUE",
-        ]))
+        ]
+        if let expires {
+            properties[.expires] = expires
+        }
+        return try XCTUnwrap(HTTPCookie(properties: properties))
     }
 }

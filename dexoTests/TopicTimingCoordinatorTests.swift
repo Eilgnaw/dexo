@@ -36,6 +36,30 @@ final class TopicTimingCoordinatorTests: XCTestCase {
         XCTAssertEqual(startTimes.map(\.timeIntervalSince1970), [1_000, 1_030, 1_060])
     }
 
+    func testDropsSubsecondRemainderInsteadOfSendingDustRequest() async {
+        var attempts: [TopicTimingBatch] = []
+        let coordinator = makeCoordinator(
+            transport: { batch in
+                attempts.append(batch)
+                return TopicTimingAttempt(result: .success)
+            }
+        )
+
+        coordinator.enqueue(
+            TopicTimingBatch(
+                topicId: 42,
+                topicTime: 60_020,
+                timings: [1: 60_020]
+            )
+        )
+        await coordinator.waitUntilIdleForTesting()
+
+        XCTAssertEqual(attempts.count, 1)
+        XCTAssertEqual(attempts.first?.topicTime, 60_000)
+        XCTAssertEqual(attempts.first?.timings, [1: 60_000])
+        XCTAssertTrue(coordinator.pendingTopicIDsForTesting.isEmpty)
+    }
+
     func testDifferentTopicsRemainFIFOAndNeverStartMoreOftenThanEveryThirtySeconds() async {
         var currentTime = Date(timeIntervalSince1970: 2_000)
         var topicOrder: [Int] = []
@@ -300,5 +324,63 @@ final class TopicTimingRetryAfterTests: XCTestCase {
             )
         )
         XCTAssertEqual(DiscourseAPI.retryAfterDelay(from: dateResponse, now: now), 120)
+    }
+}
+
+final class TopicTimingRequestBuilderTests: XCTestCase {
+    func testBuildsBrowserShapedDeterministicFormRequest() throws {
+        let batch = TopicTimingBatch(
+            topicId: 2_117_030,
+            topicTime: 4_001,
+            timings: [2: 3_000, 1: 1_001]
+        )
+        let request = try XCTUnwrap(
+            TopicTimingRequestBuilder.makeRequest(
+                baseURL: "https://linux.do",
+                batch: batch
+            )
+        )
+
+        XCTAssertEqual(request.url?.absoluteString, "https://linux.do/topics/timings")
+        XCTAssertEqual(request.httpMethod, "POST")
+        XCTAssertEqual(
+            request.httpBody.flatMap { String(data: $0, encoding: .utf8) },
+            "timings%5B1%5D=1001&timings%5B2%5D=3000&topic_time=4001&topic_id=2117030"
+        )
+        XCTAssertEqual(
+            request.value(forHTTPHeaderField: "Content-Type"),
+            "application/x-www-form-urlencoded; charset=UTF-8"
+        )
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Accept"), "*/*")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "X-Requested-With"), "XMLHttpRequest")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "X-SILENCE-LOGGER"), "true")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Discourse-Background"), "true")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Discourse-Present"), "true")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Discourse-Logged-In"), "true")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Origin"), "https://linux.do")
+        XCTAssertEqual(
+            request.value(forHTTPHeaderField: "Referer"),
+            "https://linux.do/t/topic/2117030"
+        )
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Sec-Fetch-Site"), "same-origin")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Sec-Fetch-Mode"), "cors")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Sec-Fetch-Dest"), "empty")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Cache-Control"), "no-cache")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Pragma"), "no-cache")
+    }
+
+    func testOriginExcludesForumSubpathButReferrerKeepsIt() throws {
+        let request = try XCTUnwrap(
+            TopicTimingRequestBuilder.makeRequest(
+                baseURL: "https://forum.example.com:8443/community",
+                batch: TopicTimingBatch(topicId: 42, topicTime: 1_000, timings: [1: 1_000])
+            )
+        )
+
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Origin"), "https://forum.example.com:8443")
+        XCTAssertEqual(
+            request.value(forHTTPHeaderField: "Referer"),
+            "https://forum.example.com:8443/community/t/topic/42"
+        )
     }
 }

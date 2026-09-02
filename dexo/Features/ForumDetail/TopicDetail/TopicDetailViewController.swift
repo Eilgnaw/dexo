@@ -18,21 +18,34 @@ private nonisolated enum TopicDetailItem: Hashable, Sendable {
 /// `nonisolated` to dodge the iOS 26 back-deploy `swift_task_deinitOnExecutorMainActorBackDeploy`
 /// crash for MainActor helper deinits.
 nonisolated final class TopicReadTracker {
+    private let now: () -> CFTimeInterval
     private var visibleStarts: [Int: CFTimeInterval] = [:]
     private var elapsedByPost: [Int: Int] = [:]
     private var totalSentByPost: [Int: Int] = [:]
     private var sessionStart: CFTimeInterval?
     private var sessionAccumulated: Int = 0
 
+    init(now: @escaping () -> CFTimeInterval = CACurrentMediaTime) {
+        self.now = now
+    }
+
     /// Begin / resume the topic-level timer. Idempotent.
     func startSession() {
         guard sessionStart == nil else { return }
-        sessionStart = CACurrentMediaTime()
+        let currentTime = now()
+        sessionStart = currentTime
+        // UIKit can call willDisplay while laying out the controller just
+        // before viewWillAppear starts the reading session. Align those
+        // pre-registered post timers with the topic timer so a request can
+        // never contain more visible-post time than topic time.
+        for postNumber in visibleStarts.keys {
+            visibleStarts[postNumber] = currentTime
+        }
     }
 
     func recordVisible(postNumber: Int) {
         guard visibleStarts[postNumber] == nil else { return }
-        visibleStarts[postNumber] = CACurrentMediaTime()
+        visibleStarts[postNumber] = now()
     }
 
     func recordHidden(postNumber: Int) {
@@ -44,13 +57,13 @@ nonisolated final class TopicReadTracker {
     /// Used when the VC is covered (push) or app backgrounded — the user isn't
     /// actually reading anymore so per-post and topic timers must freeze.
     func pause() {
-        let now = CACurrentMediaTime()
+        let currentTime = now()
         for (postNumber, start) in visibleStarts {
-            addElapsed(postNumber: postNumber, elapsed: Int((now - start) * 1000))
+            addElapsed(postNumber: postNumber, elapsed: Int((currentTime - start) * 1000))
         }
         visibleStarts = [:]
         if let start = sessionStart {
-            sessionAccumulated += Int((now - start) * 1000)
+            sessionAccumulated += Int((currentTime - start) * 1000)
             sessionStart = nil
         }
     }
@@ -60,17 +73,21 @@ nonisolated final class TopicReadTracker {
     /// the next snapshot picks up cleanly without double-counting (the server
     /// treats `/topics/timings` POSTs as additive).
     func snapshotDelta() -> (topicTime: Int, timings: [Int: Int]) {
-        let now = CACurrentMediaTime()
+        let currentTime = now()
         for (postNumber, start) in visibleStarts {
-            addElapsed(postNumber: postNumber, elapsed: Int((now - start) * 1000))
-            visibleStarts[postNumber] = now
+            addElapsed(postNumber: postNumber, elapsed: Int((currentTime - start) * 1000))
+            visibleStarts[postNumber] = currentTime
         }
         if let start = sessionStart {
-            sessionAccumulated += Int((now - start) * 1000)
-            sessionStart = now
+            sessionAccumulated += Int((currentTime - start) * 1000)
+            sessionStart = currentTime
         }
-        let snapTopic = sessionAccumulated
         let snapTimings = elapsedByPost
+        // Discourse only accepts topic time alongside at least one visible
+        // post. Keep it for the next real batch instead of silently throwing
+        // it away when the initial rush fires before cells are visible.
+        guard !snapTimings.isEmpty else { return (0, [:]) }
+        let snapTopic = sessionAccumulated
         for (postNumber, ms) in snapTimings {
             totalSentByPost[postNumber, default: 0] += ms
         }
@@ -95,7 +112,7 @@ nonisolated final class TopicReadTracker {
     }
 
     private func msSince(_ start: CFTimeInterval) -> Int {
-        Int((CACurrentMediaTime() - start) * 1000)
+        Int((now() - start) * 1000)
     }
 
     private static let maxPerPostMs = 6 * 60 * 1000

@@ -1,8 +1,10 @@
+import CryptoKit
 import Foundation
 import WebKit
 
 /// In-memory + persisted cookie store used for web-login sessions.
-/// Cookies are keyed by "domain|name|path" for deduplication.
+/// Security-sensitive cookies normalize a leading domain dot so WebKit's
+/// host-only/domain representations cannot coexist and both be sent.
 final class WebCookieStore {
     static let shared = WebCookieStore()
 
@@ -12,6 +14,9 @@ final class WebCookieStore {
 
     private var userAgents: [String: String] = [:]
     private let userAgentPath: URL
+    /// Session-only tombstones for `cf_clearance` values that Cloudflare has
+    /// explicitly rejected. Store hashes, never cookie values.
+    private var rejectedClearanceHashesByHost: [String: Set<String>] = [:]
 
     init(directory: URL = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]) {
         let dir = directory
@@ -59,12 +64,19 @@ final class WebCookieStore {
     func setCookies(_ cookies: [HTTPCookie]) {
         let now = Date()
         lock.lock()
-        for c in cookies {
+        let canonical = canonicalizedCookies(cookies, requestHost: nil)
+        for c in canonical.values {
+            let storageKey = key(for: c)
             // Drop already-expired cookies instead of letting them overwrite a still-valid entry.
             if let expires = c.expiresDate, expires <= now {
-                jar.removeValue(forKey: key(for: c))
+                jar.removeValue(forKey: storageKey)
+            } else if isRejectedClearanceLocked(c) {
+                continue
             } else {
-                jar[key(for: c)] = c
+                // A single Set-Cookie response is authoritative. Canonicalizing
+                // the incoming batch above only resolves duplicate variants
+                // returned together; a later response must still rotate state.
+                jar[storageKey] = c
             }
         }
         lock.unlock()
@@ -77,12 +89,13 @@ final class WebCookieStore {
         defer { lock.unlock() }
         guard let host = url.host?.lowercased() else { return [] }
         let path = url.path.isEmpty ? "/" : url.path
-        return jar.values.filter { cookie in
+        let matching = jar.values.filter { cookie in
             // Skip expired cookies so a stale/expired `_t` left in the jar never gets sent.
             if let expires = cookie.expiresDate, expires <= now { return false }
             return Self.cookieDomain(cookie.domain, matchesHost: host)
                 && path.hasPrefix(cookie.path)
         }
+        return selectedCookiesForRequest(matching, host: host)
     }
 
     func cookieHeader(for url: URL, includeSessionCookies: Bool = true) -> String {
@@ -92,7 +105,194 @@ final class WebCookieStore {
     }
 
     private static func isChallengeCookie(_ cookie: HTTPCookie) -> Bool {
-        ["cf_clearance", "__cf_bm", "_cfuvid"].contains(cookie.name)
+        challengeCookieNames.contains(cookie.name)
+    }
+
+    private func canonicalizedCookies(
+        _ cookies: [HTTPCookie],
+        requestHost: String?
+    ) -> [String: HTTPCookie] {
+        var result: [String: HTTPCookie] = [:]
+        for cookie in cookies {
+            let storageKey = key(for: cookie)
+            guard let existing = result[storageKey] else {
+                result[storageKey] = cookie
+                continue
+            }
+            result[storageKey] = preferredCookie(
+                cookie,
+                over: existing,
+                requestHost: requestHost
+            ) ? cookie : existing
+        }
+        return result
+    }
+
+    private func selectedCookiesForRequest(
+        _ cookies: [HTTPCookie],
+        host: String
+    ) -> [HTTPCookie] {
+        var selectedCritical: [String: HTTPCookie] = [:]
+        var regular: [HTTPCookie] = []
+        for cookie in cookies {
+            guard Self.criticalCookieNames.contains(cookie.name) else {
+                regular.append(cookie)
+                continue
+            }
+            if let existing = selectedCritical[cookie.name] {
+                if preferredCookie(cookie, over: existing, requestHost: host) {
+                    selectedCritical[cookie.name] = cookie
+                }
+            } else {
+                selectedCritical[cookie.name] = cookie
+            }
+        }
+        return (regular + Array(selectedCritical.values)).sorted {
+            if $0.path.count != $1.path.count { return $0.path.count > $1.path.count }
+            return $0.name < $1.name
+        }
+    }
+
+    private func preferredCookie(
+        _ candidate: HTTPCookie,
+        over existing: HTTPCookie,
+        requestHost: String?
+    ) -> Bool {
+        if let requestHost {
+            let candidateScore = Self.domainScore(candidate.domain, for: requestHost)
+            let existingScore = Self.domainScore(existing.domain, for: requestHost)
+            if candidateScore != existingScore { return candidateScore > existingScore }
+        }
+        switch (candidate.expiresDate, existing.expiresDate) {
+        case let (candidateDate?, existingDate?) where candidateDate != existingDate:
+            return candidateDate > existingDate
+        case (_?, nil):
+            return true
+        case (nil, _?):
+            return false
+        default:
+            break
+        }
+        if candidate.path.count != existing.path.count {
+            return candidate.path.count > existing.path.count
+        }
+        if candidate.isHTTPOnly != existing.isHTTPOnly {
+            return candidate.isHTTPOnly
+        }
+        if candidate.isSecure != existing.isSecure {
+            return candidate.isSecure
+        }
+        // Stable final tie-breaker independent of WebKit enumeration order.
+        return Self.cookieValueHash(candidate.value) > Self.cookieValueHash(existing.value)
+    }
+
+    private func shouldRejectStaleWebViewCookie(
+        _ candidate: HTTPCookie,
+        replacing existing: HTTPCookie?
+    ) -> Bool {
+        guard candidate.name == "cf_clearance",
+              let existing,
+              candidate.value != existing.value,
+              let candidateExpiry = candidate.expiresDate,
+              let existingExpiry = existing.expiresDate
+        else { return false }
+        return candidateExpiry <= existingExpiry
+    }
+
+    private func isRejectedClearanceLocked(_ cookie: HTTPCookie) -> Bool {
+        guard cookie.name == "cf_clearance" else { return false }
+        let hash = Self.cookieValueHash(cookie.value)
+        return rejectedClearanceHashesByHost.contains { host, hashes in
+            Self.cookieDomain(cookie.domain, matchesHost: host) && hashes.contains(hash)
+        }
+    }
+
+    static func cookieHeaderValues(named name: String, in header: String) -> [String] {
+        header.split(separator: ";").compactMap { component in
+            let pair = component.split(separator: "=", maxSplits: 1)
+            guard pair.count == 2,
+                  String(pair[0]).trimmingCharacters(in: .whitespaces) == name
+            else { return nil }
+            return String(pair[1])
+        }
+    }
+
+    nonisolated private static func cookieValueHash(_ value: String) -> String {
+        SHA256.hash(data: Data(value.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private static func normalizedCookieDomain(_ domain: String) -> String {
+        domain.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "."))
+    }
+
+    private static func domainScore(_ domain: String, for host: String) -> Int {
+        let normalizedDomain = normalizedCookieDomain(domain)
+        let normalizedHost = normalizedCookieDomain(host)
+        if normalizedDomain == normalizedHost { return 10_000 + normalizedDomain.count }
+        if normalizedHost.hasSuffix("." + normalizedDomain) {
+            return 1_000 + normalizedDomain.count
+        }
+        return normalizedDomain.count
+    }
+
+    private static let challengeCookieNames: Set<String> = [
+        "cf_clearance", "__cf_bm", "_cfuvid",
+    ]
+    private static let criticalCookieNames: Set<String> = challengeCookieNames.union([
+        "_t", "_forum_session",
+    ])
+
+    /// Records the exact clearance sent on a challenged request, removes it
+    /// from the native jar, and prevents later WebKit snapshots from reviving
+    /// that rejected value during this app session.
+    func rejectClearanceSent(with request: URLRequest) {
+        guard let url = request.url,
+              let host = url.host?.lowercased(),
+              let cookieHeader = request.value(forHTTPHeaderField: "Cookie")
+        else { return }
+        let rejectedHashes = Self.cookieHeaderValues(named: "cf_clearance", in: cookieHeader)
+            .map(Self.cookieValueHash)
+        guard !rejectedHashes.isEmpty else { return }
+
+        lock.lock()
+        rejectedClearanceHashesByHost[host, default: []].formUnion(rejectedHashes)
+        jar = jar.filter { _, cookie in
+            guard cookie.name == "cf_clearance",
+                  Self.cookieDomain(cookie.domain, matchesHost: host)
+            else { return true }
+            return !rejectedHashes.contains(Self.cookieValueHash(cookie.value))
+        }
+        lock.unlock()
+        save()
+    }
+
+    /// Safe diagnostics for validating cookie selection without logging any
+    /// authentication value. The clearance identifier is a short SHA-256
+    /// prefix used only to correlate duplicate/rejected variants locally.
+    func diagnosticSummary(for url: URL) -> String {
+        guard let host = url.host?.lowercased() else { return "host=invalid" }
+        let now = Date()
+        lock.lock()
+        defer { lock.unlock() }
+        let candidates = jar.values.filter { cookie in
+            Self.criticalCookieNames.contains(cookie.name)
+                && Self.cookieDomain(cookie.domain, matchesHost: host)
+                && (cookie.expiresDate.map { $0 > now } ?? true)
+        }.sorted {
+            if $0.name != $1.name { return $0.name < $1.name }
+            return $0.domain < $1.domain
+        }
+        let details = candidates.map { cookie in
+            let expires = cookie.expiresDate.map {
+                String(Int($0.timeIntervalSince1970))
+            } ?? "session"
+            let id = cookie.name == "cf_clearance"
+                ? String(Self.cookieValueHash(cookie.value).prefix(12)) : "hidden"
+            let rejected = cookie.name == "cf_clearance"
+                && isRejectedClearanceLocked(cookie)
+            return "\(cookie.name){domain=\(cookie.domain),path=\(cookie.path),exp=\(expires),id=\(id),rejected=\(rejected)}"
+        }
+        return "criticalCandidates=\(candidates.count) [\(details.joined(separator: ","))]"
     }
 
     func mergeResponseHeaders(_ headers: [AnyHashable: Any], for url: URL, includeSessionCookies: Bool = true) {
@@ -120,7 +320,9 @@ final class WebCookieStore {
         for cookie in cookies where Self.cookieDomain(cookie.domain, matchesHost: host)
             && (cookie.expiresDate.map { $0 > now } ?? true)
         {
-            result[key(for: cookie)] = cookie
+            // Preserve WebKit's raw domain variants here so prepareWebView can
+            // delete stale host-only/domain duplicates individually.
+            result[snapshotKey(for: cookie)] = cookie
         }
         return Snapshot(cookies: result)
     }
@@ -131,13 +333,26 @@ final class WebCookieStore {
     func mergeWebViewCookies(_ cookies: [HTTPCookie], for url: URL, since previous: Snapshot) -> Snapshot {
         let current = snapshot(cookies, for: url)
         lock.lock()
-        for (key, oldCookie) in previous.cookies where current.cookies[key] == nil {
-            if Self.sameCookie(jar[key], oldCookie) {
-                jar.removeValue(forKey: key)
+        let previousCanonical = canonicalizedCookies(
+            Array(previous.cookies.values),
+            requestHost: url.host?.lowercased()
+        )
+        let currentCanonical = canonicalizedCookies(
+            Array(current.cookies.values).filter { !isRejectedClearanceLocked($0) },
+            requestHost: url.host?.lowercased()
+        )
+        for (storageKey, oldCookie) in previousCanonical where currentCanonical[storageKey] == nil {
+            if Self.sameCookie(jar[storageKey], oldCookie) {
+                jar.removeValue(forKey: storageKey)
             }
         }
-        for (key, cookie) in current.cookies where !Self.sameCookie(previous.cookies[key], cookie) {
-            jar[key] = cookie
+        for (storageKey, cookie) in currentCanonical
+        where !Self.sameCookie(previousCanonical[storageKey], cookie)
+        {
+            if shouldRejectStaleWebViewCookie(cookie, replacing: jar[storageKey]) {
+                continue
+            }
+            jar[storageKey] = cookie
         }
         lock.unlock()
         save()
@@ -156,7 +371,9 @@ final class WebCookieStore {
         let initial = snapshot(for: url)
         let cookieStore = dataStore.httpCookieStore
         let existing = await cookieStore.allCookies()
-        for cookie in snapshot(existing, for: url).cookies.values where initial.cookies[key(for: cookie)] == nil {
+        for cookie in snapshot(existing, for: url).cookies.values
+        where initial.cookies[snapshotKey(for: cookie)] == nil
+        {
             await cookieStore.deleteCookie(cookie)
         }
         for cookie in initial.cookies.values {
@@ -209,6 +426,7 @@ final class WebCookieStore {
         lock.lock()
         jar.removeAll()
         userAgents.removeAll()
+        rejectedClearanceHashesByHost.removeAll()
         lock.unlock()
         saveUserAgents()
         try? FileManager.default.removeItem(at: filePath)
@@ -221,6 +439,10 @@ final class WebCookieStore {
             !Self.cookieDomain(cookie.domain, matchesHost: host)
         }
         userAgents = userAgents.filter { !Self.cookieDomain($0.key, matchesHost: host) }
+        rejectedClearanceHashesByHost = rejectedClearanceHashesByHost.filter {
+            !Self.cookieDomain($0.key, matchesHost: host)
+                && !Self.cookieDomain(host, matchesHost: $0.key)
+        }
         lock.unlock()
         save()
         saveUserAgents()
@@ -241,6 +463,13 @@ final class WebCookieStore {
     // MARK: - Persistence
 
     private func key(for cookie: HTTPCookie) -> String {
+        let rawDomain = cookie.domain.lowercased()
+        let domain = Self.criticalCookieNames.contains(cookie.name)
+            ? Self.normalizedCookieDomain(rawDomain) : rawDomain
+        return "\(domain)|\(cookie.name)|\(cookie.path)"
+    }
+
+    private func snapshotKey(for cookie: HTTPCookie) -> String {
         "\(cookie.domain.lowercased())|\(cookie.name)|\(cookie.path)"
     }
 
@@ -284,7 +513,10 @@ final class WebCookieStore {
         }.filter {
             $0.expiresDate.map { $0 > now } ?? true
         }
-        for c in cookies { jar[key(for: c)] = c }
+        let canonical = canonicalizedCookies(cookies, requestHost: nil)
+        for (storageKey, cookie) in canonical {
+            jar[storageKey] = cookie
+        }
     }
 
     private func saveUserAgents() {
