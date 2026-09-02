@@ -195,6 +195,30 @@ final class MeCenterTests: XCTestCase {
         )
     }
 
+    func testReadTimingSettingsSwitchFollowsPersistedSettingChanges() throws {
+        let settings = AppSettings.shared
+        let originalValue = settings.linuxDoReadTimingsEnabled
+        defer { settings.linuxDoReadTimingsEnabled = originalValue }
+
+        settings.linuxDoReadTimingsEnabled = true
+        let controller = LinuxDoReadTimingSettingsViewController()
+        controller.loadViewIfNeeded()
+        controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
+        controller.view.layoutIfNeeded()
+        let reportingSwitch = try XCTUnwrap(
+            descendants(in: controller.view)
+                .compactMap { $0 as? UISwitch }
+                .first { $0.accessibilityIdentifier == "settings.read_timings.switch" }
+        )
+        XCTAssertTrue(reportingSwitch.isOn)
+
+        settings.linuxDoReadTimingsEnabled = false
+        XCTAssertFalse(reportingSwitch.isOn)
+
+        settings.linuxDoReadTimingsEnabled = true
+        XCTAssertTrue(reportingSwitch.isOn)
+    }
+
     func testLoggedOutMenuHasOnlyLoginAndCanReturnToAuthenticatedState() throws {
         let menu = MeMenuView()
         configure(menu, authenticated: false, following: true, challenge: true)

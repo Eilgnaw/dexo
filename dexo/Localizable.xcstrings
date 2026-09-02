@@ -5889,34 +5889,66 @@
         }
       }
     },
-    "settings.read_timings.auto_disabled.message" : {
+    "settings.read_timings.challenge.disable" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Dexo stopped linux.do read-time reporting after Cloudflare requested verification. Complete the site verification before enabling it again in Settings."
+            "value" : "Turn Off Reporting"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Cloudflare 已要求验证，Dexo 已停止 linux.do 阅读时间上报。请先完成站点验证，再到设置中手动开启。"
+            "value" : "关闭上报"
           }
         }
       }
     },
-    "settings.read_timings.auto_disabled.title" : {
+    "settings.read_timings.challenge.message" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read-time reporting stopped"
+            "value" : "Cloudflare blocked this report. You can turn off read-time reporting, or open site verification and keep it enabled."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "阅读时间上报已停止"
+            "value" : "Cloudflare 拦截了本次上报。你可以关闭阅读时间上报，或打开过盾界面并保持上报开启。"
+          }
+        }
+      }
+    },
+    "settings.read_timings.challenge.open" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open Verification"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "打开过盾界面"
+          }
+        }
+      }
+    },
+    "settings.read_timings.challenge.title" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Read-time reporting blocked"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "阅读时间上报被拦截"
           }
         }
       }
@@ -5926,13 +5958,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Enabled by default for linux.do web-login accounts. Uploads are combined and rate-limited. If Cloudflare requests verification, reporting stops until you complete verification and enable it again."
+            "value" : "Enabled by default for linux.do web-login accounts. Uploads are combined and rate-limited. If Cloudflare requests verification, you can turn reporting off or open site verification."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "linux.do 网页登录账号默认开启。上报会合并并限速；若 Cloudflare 要求验证，将停止上报，请完成验证后再手动开启。"
+            "value" : "linux.do 网页登录账号默认开启。上报会合并并限速；若 Cloudflare 要求验证，可选择关闭上报或打开过盾界面。"
           }
         }
       }
@@ -5942,13 +5974,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Report read time to linux.do"
+            "value" : "Read-time Reporting"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "向 linux.do 上报阅读时间"
+            "value" : "阅读时间上报"
           }
         }
       }
@@ -5974,13 +6006,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "linux.do Read-time Reporting"
+            "value" : "Read-time Reporting"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "linux.do 阅读时间上报"
+            "value" : "阅读时间上报"
           }
         }
       }

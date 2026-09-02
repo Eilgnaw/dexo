@@ -125,6 +125,12 @@ final class MeViewController: ObservableViewController {
             name: .discourseAuthDidChange,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(readTimingsSettingDidChange),
+            name: .linuxDoReadTimingsSettingDidChange,
+            object: nil
+        )
         applySurfaceTheme()
         loadData()
     }
@@ -169,7 +175,7 @@ final class MeViewController: ObservableViewController {
         let unreadNotifications = notificationPoller?.hasUnreadNotifications ?? false
         let unreadMessages = notificationPoller?.hasUnreadMessages ?? false
         _ = AppSettings.shared.localBlocklistRevision
-        let readTimingsEnabled = AppSettings.shared.linuxDoReadTimingsEnabled
+        let readTimingsEnabled = ForumPolicy.tracksReadTimings(baseURL: api.baseURL)
         _ = ThemeManager.shared.revision
         _ = FontManager.shared.revision
         let isAuthenticated = authGate?.isAuthenticated() ?? false
@@ -365,6 +371,10 @@ final class MeViewController: ObservableViewController {
             viewModel.requiresLogin = true
             refreshControl.endRefreshing()
         }
+        updateUI()
+    }
+
+    @objc private func readTimingsSettingDidChange() {
         updateUI()
     }
 

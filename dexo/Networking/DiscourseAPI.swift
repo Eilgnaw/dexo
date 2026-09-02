@@ -256,9 +256,8 @@ final class DiscourseAPI {
         },
         onCloudflareChallenge: { [weak self] in
             guard let self, ForumPolicy.isLinuxDoFamily(baseURL: self.baseURL) else { return }
-            AppSettings.shared.linuxDoReadTimingsEnabled = false
             NotificationCenter.default.post(
-                name: .linuxDoReadTimingsAutoDisabled,
+                name: .linuxDoReadTimingsChallengeDetected,
                 object: self
             )
         },
@@ -445,6 +444,17 @@ final class DiscourseAPI {
                 )
             }
         }
+    }
+
+    /// A Cloudflare response suspends the timing coordinator for the current
+    /// session and discards its queue. Once the user has opened the challenge
+    /// page and its cookies have been synchronized, allow newly collected
+    /// timings to start a fresh session without changing their saved setting.
+    func resumeTopicTimingUploadsAfterChallenge() {
+        guard ForumPolicy.isLinuxDoFamily(baseURL: baseURL) else { return }
+        topicTimingCoordinator.resetForEligibilityChange(
+            isEligible: ForumPolicy.tracksReadTimings(baseURL: baseURL)
+        )
     }
 
     func fetchCategoryTopics(
@@ -1481,8 +1491,8 @@ final class DiscourseAPI {
 }
 
 extension Notification.Name {
-    static let linuxDoReadTimingsAutoDisabled = Notification.Name(
-        "linuxDoReadTimingsAutoDisabled"
+    static let linuxDoReadTimingsChallengeDetected = Notification.Name(
+        "linuxDoReadTimingsChallengeDetected"
     )
 }
 

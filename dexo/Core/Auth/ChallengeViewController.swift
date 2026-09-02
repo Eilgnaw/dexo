@@ -48,6 +48,7 @@ extension UIViewController {
 final class ChallengeViewController: BaseViewController {
     private let targetURL: URL
     private let userAgent: String?
+    private let onSessionSynchronized: (() -> Void)?
 
     private var webView: WKWebView?
     private var webCookieSession: WebCookieStore.WebViewSession?
@@ -55,6 +56,7 @@ final class ChallengeViewController: BaseViewController {
     private var setupTask: Task<Void, Never>?
     private var isFinalCookieSyncInProgress = false
     private var isObservingCookieChanges = false
+    private var didNotifySessionSynchronized = false
 
     private func makeWebViewConfiguration() async throws -> (WKWebViewConfiguration, AnyObject?) {
         let config = WKWebViewConfiguration()
@@ -82,9 +84,14 @@ final class ChallengeViewController: BaseViewController {
 
     private var progressObservation: NSKeyValueObservation?
 
-    init(targetURL: URL, userAgent: String?) {
+    init(
+        targetURL: URL,
+        userAgent: String?,
+        onSessionSynchronized: (() -> Void)? = nil
+    ) {
         self.targetURL = targetURL
         self.userAgent = userAgent
+        self.onSessionSynchronized = onSessionSynchronized
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -162,7 +169,7 @@ final class ChallengeViewController: BaseViewController {
             preferredStyle: .alert
         )
         alert.addAction(UIAlertAction(title: String(localized: "action.ok"), style: .default) { [weak self] _ in
-            self?.dismiss(animated: true)
+            self?.syncAndDismiss()
         })
         present(alert, animated: true)
     }
@@ -206,8 +213,16 @@ final class ChallengeViewController: BaseViewController {
         isFinalCookieSyncInProgress = true
         Task { @MainActor in
             await syncWebSession()
-            dismiss(animated: true)
+            dismiss(animated: true) { [weak self] in
+                self?.notifySessionSynchronizedOnce()
+            }
         }
+    }
+
+    private func notifySessionSynchronizedOnce() {
+        guard !didNotifySessionSynchronized else { return }
+        didNotifySessionSynchronized = true
+        onSessionSynchronized?()
     }
 
     override func viewWillDisappear(_ animated: Bool) {
@@ -217,7 +232,11 @@ final class ChallengeViewController: BaseViewController {
         if !isFinalCookieSyncInProgress,
            isBeingDismissed || navigationController?.isBeingDismissed == true
         {
-            syncCookies()
+            isFinalCookieSyncInProgress = true
+            Task { @MainActor in
+                await syncWebSession()
+                notifySessionSynchronizedOnce()
+            }
         }
     }
 
@@ -230,9 +249,16 @@ final class ChallengeViewController: BaseViewController {
     }
 
     /// Convenience for presenting the challenge flow from any view controller.
-    static func present(from presenter: UIViewController) {
+    static func present(
+        from presenter: UIViewController,
+        onSessionSynchronized: (() -> Void)? = nil
+    ) {
         guard let url = URL(string: "https://linux.do/challenge") else { return }
-        let vc = ChallengeViewController(targetURL: url, userAgent: WebCookieStore.shared.userAgent(for: url))
+        let vc = ChallengeViewController(
+            targetURL: url,
+            userAgent: WebCookieStore.shared.userAgent(for: url),
+            onSessionSynchronized: onSessionSynchronized
+        )
         let nav = UINavigationController(rootViewController: vc)
         nav.modalPresentationStyle = .pageSheet
         presenter.present(nav, animated: true)

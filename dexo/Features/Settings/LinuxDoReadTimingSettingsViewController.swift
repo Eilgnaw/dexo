@@ -11,6 +11,16 @@ final class LinuxDoReadTimingSettingsViewController: BaseViewController {
     private let settings = AppSettings.shared
     private var successfulReportCount = 0
     private var failedReportCount = 0
+    private lazy var reportingSwitch: UISwitch = {
+        let reportingSwitch = UISwitch()
+        reportingSwitch.accessibilityIdentifier = "settings.read_timings.switch"
+        reportingSwitch.addTarget(
+            self,
+            action: #selector(reportingSwitchChanged(_:)),
+            for: .valueChanged
+        )
+        return reportingSwitch
+    }()
 
     private lazy var tableView: UITableView = {
         let tableView = ThemedTableView(frame: .zero, style: .insetGrouped)
@@ -40,6 +50,7 @@ final class LinuxDoReadTimingSettingsViewController: BaseViewController {
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
+        synchronizeReportingSwitch()
         reloadReportSummary()
     }
 
@@ -54,11 +65,16 @@ final class LinuxDoReadTimingSettingsViewController: BaseViewController {
 
     @objc private func reportingSettingDidChange(_ notification: Notification) {
         guard isViewLoaded else { return }
-        tableView.reloadSections(IndexSet(integer: Section.reporting.rawValue), with: .none)
+        synchronizeReportingSwitch()
     }
 
     @objc private func reportingSwitchChanged(_ sender: UISwitch) {
         settings.linuxDoReadTimingsEnabled = sender.isOn
+        synchronizeReportingSwitch()
+    }
+
+    private func synchronizeReportingSwitch() {
+        reportingSwitch.setOn(settings.linuxDoReadTimingsEnabled, animated: false)
     }
 }
 
@@ -95,13 +111,7 @@ extension LinuxDoReadTimingSettingsViewController: UITableViewDataSource {
             cell.textLabel?.text = String(localized: "settings.read_timings.linux_do")
             cell.detailTextLabel?.text = String(localized: "settings.read_timings.linux_do.subtitle")
             cell.selectionStyle = .none
-            let reportingSwitch = UISwitch()
-            reportingSwitch.isOn = settings.linuxDoReadTimingsEnabled
-            reportingSwitch.addTarget(
-                self,
-                action: #selector(reportingSwitchChanged(_:)),
-                for: .valueChanged
-            )
+            synchronizeReportingSwitch()
             cell.accessoryView = reportingSwitch
             return cell
 

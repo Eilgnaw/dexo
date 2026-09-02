@@ -15,7 +15,7 @@ final class ForumContainerViewController: BaseViewController, AuthGating {
     private let api: DiscourseAPI
     private let authManager = AuthManager.shared
     private var notificationPoller: NotificationPoller?
-    private var hasPendingReadTimingsAutoDisabledAlert = false
+    private var hasPendingReadTimingsChallengeAlert = false
     private var hasPendingPostLoginPushPrompt = false
     private var pendingPushRegistrationError: Error?
     private var isRegisteringPush = false
@@ -169,8 +169,8 @@ final class ForumContainerViewController: BaseViewController, AuthGating {
         )
         NotificationCenter.default.addObserver(
             self,
-            selector: #selector(readTimingsWereAutoDisabled),
-            name: .linuxDoReadTimingsAutoDisabled,
+            selector: #selector(readTimingsChallengeWasDetected),
+            name: .linuxDoReadTimingsChallengeDetected,
             object: api
         )
         NotificationCenter.default.addObserver(
@@ -205,8 +205,8 @@ final class ForumContainerViewController: BaseViewController, AuthGating {
         presentPendingAlertsIfPossible()
     }
 
-    @objc private func readTimingsWereAutoDisabled() {
-        hasPendingReadTimingsAutoDisabledAlert = true
+    @objc private func readTimingsChallengeWasDetected() {
+        hasPendingReadTimingsChallengeAlert = true
         presentPendingAlertsIfPossible()
     }
 
@@ -222,7 +222,7 @@ final class ForumContainerViewController: BaseViewController, AuthGating {
             return
         }
 
-        if hasPendingReadTimingsAutoDisabledAlert {
+        if hasPendingReadTimingsChallengeAlert {
             presentPendingReadTimingsAlert()
             return
         }
@@ -231,14 +231,27 @@ final class ForumContainerViewController: BaseViewController, AuthGating {
     }
 
     private func presentPendingReadTimingsAlert() {
-        hasPendingReadTimingsAutoDisabledAlert = false
+        hasPendingReadTimingsChallengeAlert = false
         let alert = UIAlertController(
-            title: String(localized: "settings.read_timings.auto_disabled.title"),
-            message: String(localized: "settings.read_timings.auto_disabled.message"),
+            title: String(localized: "settings.read_timings.challenge.title"),
+            message: String(localized: "settings.read_timings.challenge.message"),
             preferredStyle: .alert
         )
-        alert.addAction(UIAlertAction(title: String(localized: "action.ok"), style: .default) { [weak self] _ in
+        alert.addAction(UIAlertAction(
+            title: String(localized: "settings.read_timings.challenge.disable"),
+            style: .destructive
+        ) { [weak self] _ in
+            AppSettings.shared.linuxDoReadTimingsEnabled = false
             self?.schedulePendingAlertPresentation()
+        })
+        alert.addAction(UIAlertAction(
+            title: String(localized: "settings.read_timings.challenge.open"),
+            style: .default
+        ) { [weak self] _ in
+            guard let self else { return }
+            ChallengeViewController.present(from: self) { [weak self] in
+                self?.api.resumeTopicTimingUploadsAfterChallenge()
+            }
         })
         present(alert, animated: true)
     }

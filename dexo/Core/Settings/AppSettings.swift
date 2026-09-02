@@ -314,7 +314,7 @@ final class AppSettings {
 
     /// linux.do timing uploads default on for browser-authenticated accounts.
     /// Checking `object(forKey:)` preserves an explicit off value written by
-    /// either the user or the Cloudflare protection circuit breaker.
+    /// the user, including the choice made after a Cloudflare challenge.
     var linuxDoReadTimingsEnabled: Bool {
         get {
             guard defaults.object(forKey: "linuxDoReadTimingsEnabled") != nil else {
