@@ -3,4 +3,5 @@ Read-time Reporting
 - Sign in to linux.do using web login, then open Me > Read-time Reporting and confirm the switch matches the status shown on the Me page.
 - Open a topic and read normally. Confirm read time is uploaded at a low frequency and that success, failure, and error details appear in Read-time Report History.
 - Confirm anonymous sessions and User API Key sessions do not upload read time.
-- If an upload triggers Cloudflare verification, confirm you can choose Turn Off Reporting or Open Verification. Reporting should resume after verification is completed.
+- If an upload triggers Cloudflare verification, confirm no alert interrupts reading and a circular shield remains visible across Home, topic, and Me screens. Drag it and confirm it snaps to either screen edge.
+- Tap the shield and choose Open Verification or Turn Off Reporting. Cancelling verification or relaunching the app should retain the Verification Needed state and keep reporting paused; tapping Done on the verification screen should hide the shield and resume reporting.

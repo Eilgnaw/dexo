@@ -15,11 +15,15 @@ final class ForumContainerViewController: BaseViewController, AuthGating {
     private let api: DiscourseAPI
     private let authManager = AuthManager.shared
     private var notificationPoller: NotificationPoller?
-    private var hasPendingReadTimingsChallengeAlert = false
     private var hasPendingPostLoginPushPrompt = false
     private var pendingPushRegistrationError: Error?
     private var isRegisteringPush = false
     private var pendingPushDestination: PendingPushDestination?
+
+    private lazy var readTimingChallengeIndicator = ReadTimingChallengeIndicatorView {
+        [weak self] action in
+        self?.handleReadTimingChallengeAction(action)
+    }
 
     private let pushRegistrationLoadingIndicator: UIActivityIndicatorView = {
         let indicator = UIActivityIndicatorView(style: .medium)
@@ -157,6 +161,7 @@ final class ForumContainerViewController: BaseViewController, AuthGating {
         authManager.restoreAuthState(for: forum)
 
         setupTabBar()
+        setupReadTimingChallengeIndicator()
         setupPushRegistrationLoadingOverlay()
         configureNavItems()
         startObservingAuth()
@@ -169,9 +174,9 @@ final class ForumContainerViewController: BaseViewController, AuthGating {
         )
         NotificationCenter.default.addObserver(
             self,
-            selector: #selector(readTimingsChallengeWasDetected),
-            name: .linuxDoReadTimingsChallengeDetected,
-            object: api
+            selector: #selector(readTimingsSettingDidChange),
+            name: .linuxDoReadTimingsSettingDidChange,
+            object: nil
         )
         NotificationCenter.default.addObserver(
             self,
@@ -197,17 +202,23 @@ final class ForumContainerViewController: BaseViewController, AuthGating {
             notificationPoller?.stop()
             notificationPoller = nil
         }
+        updateReadTimingChallengeIndicator(animated: false)
     }
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         openPendingPushDestinationIfPossible()
+        updateReadTimingChallengeIndicator(animated: true)
         presentPendingAlertsIfPossible()
     }
 
-    @objc private func readTimingsChallengeWasDetected() {
-        hasPendingReadTimingsChallengeAlert = true
-        presentPendingAlertsIfPossible()
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        updateReadTimingChallengeIndicatorPlacement()
+    }
+
+    @objc private func readTimingsSettingDidChange() {
+        updateReadTimingChallengeIndicator(animated: true)
     }
 
     @objc private func presentPendingAlertsIfPossible() {
@@ -222,38 +233,76 @@ final class ForumContainerViewController: BaseViewController, AuthGating {
             return
         }
 
-        if hasPendingReadTimingsChallengeAlert {
-            presentPendingReadTimingsAlert()
-            return
-        }
-
         presentPostLoginPushPromptIfNeeded()
     }
 
-    private func presentPendingReadTimingsAlert() {
-        hasPendingReadTimingsChallengeAlert = false
-        let alert = UIAlertController(
-            title: String(localized: "settings.read_timings.challenge.title"),
-            message: String(localized: "settings.read_timings.challenge.message"),
-            preferredStyle: .alert
-        )
-        alert.addAction(UIAlertAction(
-            title: String(localized: "settings.read_timings.challenge.disable"),
-            style: .destructive
-        ) { [weak self] _ in
-            AppSettings.shared.linuxDoReadTimingsEnabled = false
-            self?.schedulePendingAlertPresentation()
-        })
-        alert.addAction(UIAlertAction(
-            title: String(localized: "settings.read_timings.challenge.open"),
-            style: .default
-        ) { [weak self] _ in
-            guard let self else { return }
-            ChallengeViewController.present(from: self) { [weak self] in
-                self?.api.resumeTopicTimingUploadsAfterChallenge()
+    private func setupReadTimingChallengeIndicator() {
+        view.addSubview(readTimingChallengeIndicator)
+        updateReadTimingChallengeIndicator(animated: false)
+    }
+
+    private func updateReadTimingChallengeIndicator(animated: Bool) {
+        let shouldShow = api.isLinuxDo
+            && ForumPolicy.readTimingReportingStatus(baseURL: api.baseURL) == .verificationRequired
+        readTimingChallengeIndicator.configureTheme()
+        readTimingChallengeIndicator.setPresented(shouldShow, animated: animated)
+        updateReadTimingChallengeIndicatorPlacement()
+    }
+
+    private func updateReadTimingChallengeIndicatorPlacement() {
+        guard view.bounds.width > 0, view.bounds.height > 0 else { return }
+        let safeBounds = view.bounds.inset(by: view.safeAreaInsets)
+        var top = safeBounds.minY
+        var bottom = safeBounds.maxY - 72
+
+        if let tabBarController = children.first as? ForumTabBarController {
+            if let navigationController = tabBarController.selectedViewController as? UINavigationController {
+                let navigationFrame = navigationController.navigationBar.convert(
+                    navigationController.navigationBar.bounds,
+                    to: view
+                )
+                top = max(top, navigationFrame.maxY)
             }
-        })
-        present(alert, animated: true)
+            let tabBarFrame = tabBarController.tabBar.convert(
+                tabBarController.tabBar.bounds,
+                to: view
+            )
+            if tabBarFrame.minY > view.bounds.midY {
+                bottom = min(bottom, tabBarFrame.minY - 80)
+            }
+        }
+
+        let availableBounds: CGRect
+        if bottom - top >= 96 {
+            availableBounds = CGRect(
+                x: safeBounds.minX,
+                y: top,
+                width: safeBounds.width,
+                height: bottom - top
+            )
+        } else {
+            availableBounds = safeBounds
+        }
+        readTimingChallengeIndicator.updatePlacement(in: availableBounds)
+    }
+
+    private func handleReadTimingChallengeAction(
+        _ action: ReadTimingChallengeIndicatorView.Action
+    ) {
+        switch action {
+        case .disableReporting:
+            AppSettings.shared.linuxDoReadTimingsEnabled = false
+
+        case .openChallenge:
+            guard AppSettings.shared.linuxDoReadTimingsNeedsVerification else { return }
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.presentedViewController == nil else { return }
+                ChallengeViewController.present(from: self) { result in
+                    guard result == .completed else { return }
+                    AppSettings.shared.linuxDoReadTimingsNeedsVerification = false
+                }
+            }
+        }
     }
 
     private func presentPostLoginPushPromptIfNeeded() {
@@ -450,6 +499,7 @@ final class ForumContainerViewController: BaseViewController, AuthGating {
     @objc private func updateTabBarTheme() {
         guard let tabBarVC = children.first as? ForumTabBarController else { return }
         tabBarVC.tabBar.tintColor = ThemeManager.shared.accentColor
+        readTimingChallengeIndicator.configureTheme()
     }
 
     private func configureNavItems() {

@@ -5905,18 +5905,18 @@
         }
       }
     },
-    "settings.read_timings.challenge.message" : {
+    "settings.read_timings.challenge.indicator.hint" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Cloudflare blocked this report. You can turn off read-time reporting, or open site verification and keep it enabled."
+            "value" : "Opens Cloudflare verification options"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Cloudflare 拦截了本次上报。你可以关闭阅读时间上报，或打开过盾界面并保持上报开启。"
+            "value" : "打开 Cloudflare 验证处理选项"
           }
         }
       }
@@ -5942,13 +5942,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Read-time reporting blocked"
+            "value" : "Read-time reporting paused"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "阅读时间上报被拦截"
+            "value" : "阅读时间上报已暂停"
           }
         }
       }
@@ -5958,13 +5958,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Enabled by default for linux.do web-login accounts. Uploads are combined and rate-limited. If Cloudflare requests verification, you can turn reporting off or open site verification."
+            "value" : "Enabled by default for linux.do web-login accounts. Uploads are combined and rate-limited. If Cloudflare requests verification, tap the floating shield to verify or turn reporting off."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "linux.do 网页登录账号默认开启。上报会合并并限速；若 Cloudflare 要求验证，可选择关闭上报或打开过盾界面。"
+            "value" : "linux.do 网页登录账号默认开启。上报会合并并限速；若 Cloudflare 要求验证，请点击悬浮盾牌选择过盾或关闭上报。"
           }
         }
       }
@@ -6013,6 +6013,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "阅读时间上报"
+          }
+        }
+      }
+    },
+    "settings.read_timings.linux_do.verification_required_subtitle" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Paused · Cloudflare verification required"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "已暂停 · 需要完成 Cloudflare 验证"
           }
         }
       }
@@ -6077,6 +6093,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "已开启"
+          }
+        }
+      }
+    },
+    "settings.read_timings.status.verification_required" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verification needed"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "待验证"
           }
         }
       }

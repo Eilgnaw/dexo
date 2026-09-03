@@ -324,14 +324,37 @@ final class AppSettings {
         }
         set {
             let wasEnabled = linuxDoReadTimingsEnabled
+            let neededVerification = linuxDoReadTimingsNeedsVerification
             defaults.set(newValue, forKey: "linuxDoReadTimingsEnabled")
-            if newValue != wasEnabled {
-                NotificationCenter.default.post(
-                    name: .linuxDoReadTimingsSettingDidChange,
-                    object: self
-                )
+            if !newValue {
+                defaults.set(false, forKey: "linuxDoReadTimingsNeedsVerification")
+            }
+            if newValue != wasEnabled
+                || neededVerification != linuxDoReadTimingsNeedsVerification
+            {
+                notifyLinuxDoReadTimingsSettingDidChange()
             }
         }
+    }
+
+    /// Persisted circuit-breaker state. Keeping it separate from the user's
+    /// switch lets the UI explain that reporting is paused rather than off,
+    /// and prevents a relaunch from immediately hitting Cloudflare again.
+    var linuxDoReadTimingsNeedsVerification: Bool {
+        get { defaults.bool(forKey: "linuxDoReadTimingsNeedsVerification") }
+        set {
+            let normalizedValue = newValue && linuxDoReadTimingsEnabled
+            guard normalizedValue != linuxDoReadTimingsNeedsVerification else { return }
+            defaults.set(normalizedValue, forKey: "linuxDoReadTimingsNeedsVerification")
+            notifyLinuxDoReadTimingsSettingDidChange()
+        }
+    }
+
+    private func notifyLinuxDoReadTimingsSettingDidChange() {
+        NotificationCenter.default.post(
+            name: .linuxDoReadTimingsSettingDidChange,
+            object: self
+        )
     }
 
     // MARK: - DNS over HTTPS

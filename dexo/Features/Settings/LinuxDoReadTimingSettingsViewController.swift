@@ -66,6 +66,7 @@ final class LinuxDoReadTimingSettingsViewController: BaseViewController {
     @objc private func reportingSettingDidChange(_ notification: Notification) {
         guard isViewLoaded else { return }
         synchronizeReportingSwitch()
+        tableView.reloadSections(IndexSet(integer: Section.reporting.rawValue), with: .none)
     }
 
     @objc private func reportingSwitchChanged(_ sender: UISwitch) {
@@ -109,7 +110,9 @@ extension LinuxDoReadTimingSettingsViewController: UITableViewDataSource {
             cell.detailTextLabel?.font = FontManager.shared.font(size: 13)
             cell.detailTextLabel?.textColor = .secondaryLabel
             cell.textLabel?.text = String(localized: "settings.read_timings.linux_do")
-            cell.detailTextLabel?.text = String(localized: "settings.read_timings.linux_do.subtitle")
+            cell.detailTextLabel?.text = settings.linuxDoReadTimingsNeedsVerification
+                ? String(localized: "settings.read_timings.linux_do.verification_required_subtitle")
+                : String(localized: "settings.read_timings.linux_do.subtitle")
             cell.selectionStyle = .none
             synchronizeReportingSwitch()
             cell.accessoryView = reportingSwitch

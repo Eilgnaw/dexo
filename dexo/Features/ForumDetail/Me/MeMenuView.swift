@@ -105,7 +105,7 @@ final class MeMenuView: ProfileMenuSheetView {
         showsFollowing: Bool,
         showsChallenge: Bool,
         showsReadTimings: Bool = false,
-        readTimingsEnabled: Bool = true,
+        readTimingsStatus: ReadTimingReportingStatus = .enabled,
         blockedCount: Int,
         unreadNotifications: Bool,
         palette: ProfilePagePalette? = nil
@@ -133,9 +133,14 @@ final class MeMenuView: ProfileMenuSheetView {
             case .localBlocklist:
                 detail = String(localized: "me.local_blocklist.count \(blockedCount)")
             case .readTimings:
-                detail = readTimingsEnabled
-                    ? String(localized: "settings.read_timings.status.enabled")
-                    : String(localized: "settings.read_timings.status.disabled")
+                switch readTimingsStatus {
+                case .enabled:
+                    detail = String(localized: "settings.read_timings.status.enabled")
+                case .disabled:
+                    detail = String(localized: "settings.read_timings.status.disabled")
+                case .verificationRequired:
+                    detail = String(localized: "settings.read_timings.status.verification_required")
+                }
             default:
                 detail = nil
             }

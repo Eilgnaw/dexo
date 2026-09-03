@@ -175,7 +175,7 @@ final class MeViewController: ObservableViewController {
         let unreadNotifications = notificationPoller?.hasUnreadNotifications ?? false
         let unreadMessages = notificationPoller?.hasUnreadMessages ?? false
         _ = AppSettings.shared.localBlocklistRevision
-        let readTimingsEnabled = ForumPolicy.tracksReadTimings(baseURL: api.baseURL)
+        let readTimingsStatus = ForumPolicy.readTimingReportingStatus(baseURL: api.baseURL)
         _ = ThemeManager.shared.revision
         _ = FontManager.shared.revision
         let isAuthenticated = authGate?.isAuthenticated() ?? false
@@ -197,7 +197,7 @@ final class MeViewController: ObservableViewController {
             showsChallenge: isAuthenticated && api.isLinuxDo
                 && KeychainHelper.getUserApiKey(for: api.baseURL) == AuthManager.webAuthSentinel,
             showsReadTimings: api.isLinuxDo,
-            readTimingsEnabled: readTimingsEnabled,
+            readTimingsStatus: readTimingsStatus,
             blockedCount: AppSettings.shared.localBlockedUsers(for: api.baseURL).count,
             unreadNotifications: unreadNotifications,
             palette: profileHeader.pagePalette

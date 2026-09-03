@@ -1,5 +1,11 @@
 import Foundation
 
+enum ReadTimingReportingStatus: Equatable {
+    case enabled
+    case disabled
+    case verificationRequired
+}
+
 /// Per-forum UI/feature toggles that depend on the connected Discourse instance.
 /// Centralizes host-specific decisions so call sites don't sprinkle string checks.
 enum ForumPolicy {
@@ -27,10 +33,29 @@ enum ForumPolicy {
     }
 
     static func tracksReadTimings(baseURL: String, authKind: ForumAuthKind) -> Bool {
+        readTimingReportingStatus(baseURL: baseURL, authKind: authKind) == .enabled
+    }
+
+    static func readTimingReportingStatus(baseURL: String) -> ReadTimingReportingStatus {
+        readTimingReportingStatus(
+            baseURL: baseURL,
+            authKind: AuthManager.shared.authenticationKind(for: baseURL)
+        )
+    }
+
+    static func readTimingReportingStatus(
+        baseURL: String,
+        authKind: ForumAuthKind
+    ) -> ReadTimingReportingStatus {
         guard matches(baseURL: baseURL, suppressed: protectedReadTimingHosts) else {
-            return authKind != .anonymous
+            return authKind == .anonymous ? .disabled : .enabled
         }
-        return AppSettings.shared.linuxDoReadTimingsEnabled && authKind == .webSession
+        guard AppSettings.shared.linuxDoReadTimingsEnabled,
+              authKind == .webSession
+        else { return .disabled }
+        return AppSettings.shared.linuxDoReadTimingsNeedsVerification
+            ? .verificationRequired
+            : .enabled
     }
 
     nonisolated static func isLinuxDoFamily(baseURL: String) -> Bool {

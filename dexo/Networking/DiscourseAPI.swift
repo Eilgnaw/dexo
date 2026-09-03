@@ -256,10 +256,7 @@ final class DiscourseAPI {
         },
         onCloudflareChallenge: { [weak self] in
             guard let self, ForumPolicy.isLinuxDoFamily(baseURL: self.baseURL) else { return }
-            NotificationCenter.default.post(
-                name: .linuxDoReadTimingsChallengeDetected,
-                object: self
-            )
+            AppSettings.shared.linuxDoReadTimingsNeedsVerification = true
         },
         onAuthenticationFailure: { [weak self] in
             guard let self else { return }
@@ -424,6 +421,9 @@ final class DiscourseAPI {
             }
             MainActor.assumeIsolated {
                 guard let self else { return }
+                if ForumPolicy.isLinuxDoFamily(baseURL: self.baseURL) {
+                    AppSettings.shared.linuxDoReadTimingsNeedsVerification = false
+                }
                 self.invalidateCategoryCache()
                 self.topicTimingCoordinator.resetForEligibilityChange(
                     isEligible: ForumPolicy.tracksReadTimings(baseURL: self.baseURL)
@@ -444,17 +444,6 @@ final class DiscourseAPI {
                 )
             }
         }
-    }
-
-    /// A Cloudflare response suspends the timing coordinator for the current
-    /// session and discards its queue. Once the user has opened the challenge
-    /// page and its cookies have been synchronized, allow newly collected
-    /// timings to start a fresh session without changing their saved setting.
-    func resumeTopicTimingUploadsAfterChallenge() {
-        guard ForumPolicy.isLinuxDoFamily(baseURL: baseURL) else { return }
-        topicTimingCoordinator.resetForEligibilityChange(
-            isEligible: ForumPolicy.tracksReadTimings(baseURL: baseURL)
-        )
     }
 
     func fetchCategoryTopics(
@@ -1488,12 +1477,6 @@ final class DiscourseAPI {
             ?? ["Session expired, please log in again"]
         return DiscourseAPIError(messages: messages, errorType: "not_logged_in")
     }
-}
-
-extension Notification.Name {
-    static let linuxDoReadTimingsChallengeDetected = Notification.Name(
-        "linuxDoReadTimingsChallengeDetected"
-    )
 }
 
 // MARK: - Error Handling

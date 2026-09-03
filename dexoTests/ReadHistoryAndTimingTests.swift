@@ -295,8 +295,15 @@ final class TopicTimingPolicyTests: XCTestCase {
         let settings = AppSettings(testingDefaults: defaults)
 
         XCTAssertTrue(settings.linuxDoReadTimingsEnabled)
+        XCTAssertFalse(settings.linuxDoReadTimingsNeedsVerification)
+        settings.linuxDoReadTimingsNeedsVerification = true
+        XCTAssertTrue(
+            AppSettings(testingDefaults: defaults).linuxDoReadTimingsNeedsVerification
+        )
         settings.linuxDoReadTimingsEnabled = false
-        XCTAssertFalse(AppSettings(testingDefaults: defaults).linuxDoReadTimingsEnabled)
+        let disabledSettings = AppSettings(testingDefaults: defaults)
+        XCTAssertFalse(disabledSettings.linuxDoReadTimingsEnabled)
+        XCTAssertFalse(disabledSettings.linuxDoReadTimingsNeedsVerification)
         settings.linuxDoReadTimingsEnabled = true
         XCTAssertTrue(AppSettings(testingDefaults: defaults).linuxDoReadTimingsEnabled)
     }
@@ -304,11 +311,17 @@ final class TopicTimingPolicyTests: XCTestCase {
     func testLinuxDoPolicyRequiresWebSessionAndCoversSubdomains() {
         let settings = AppSettings.shared
         let original = settings.linuxDoReadTimingsEnabled
-        defer { settings.linuxDoReadTimingsEnabled = original }
+        let originalNeedsVerification = settings.linuxDoReadTimingsNeedsVerification
+        defer {
+            settings.linuxDoReadTimingsEnabled = true
+            settings.linuxDoReadTimingsNeedsVerification = originalNeedsVerification
+            settings.linuxDoReadTimingsEnabled = original
+        }
 
         settings.linuxDoReadTimingsEnabled = false
         XCTAssertFalse(ForumPolicy.tracksReadTimings(baseURL: "https://linux.do", authKind: .webSession))
         settings.linuxDoReadTimingsEnabled = true
+        settings.linuxDoReadTimingsNeedsVerification = false
         XCTAssertTrue(ForumPolicy.tracksReadTimings(baseURL: "https://linux.do", authKind: .webSession))
         XCTAssertTrue(ForumPolicy.tracksReadTimings(baseURL: "https://meta.linux.do", authKind: .webSession))
         XCTAssertFalse(ForumPolicy.tracksReadTimings(baseURL: "https://linux.do", authKind: .userAPIKey))
@@ -316,6 +329,38 @@ final class TopicTimingPolicyTests: XCTestCase {
         XCTAssertTrue(ForumPolicy.tracksReadTimings(baseURL: "https://example.com", authKind: .userAPIKey))
         XCTAssertTrue(ForumPolicy.tracksReadTimings(baseURL: "https://example.com", authKind: .webSession))
         XCTAssertFalse(ForumPolicy.tracksReadTimings(baseURL: "https://example.com", authKind: .anonymous))
+
+        settings.linuxDoReadTimingsNeedsVerification = true
+        XCTAssertEqual(
+            ForumPolicy.readTimingReportingStatus(
+                baseURL: "https://linux.do",
+                authKind: .webSession
+            ),
+            .verificationRequired
+        )
+        XCTAssertFalse(ForumPolicy.tracksReadTimings(baseURL: "https://linux.do", authKind: .webSession))
+    }
+
+    func testAuthenticationChangeClearsPersistedVerificationRequirement() {
+        let settings = AppSettings.shared
+        let originalEnabled = settings.linuxDoReadTimingsEnabled
+        let originalNeedsVerification = settings.linuxDoReadTimingsNeedsVerification
+        defer {
+            settings.linuxDoReadTimingsEnabled = true
+            settings.linuxDoReadTimingsNeedsVerification = originalNeedsVerification
+            settings.linuxDoReadTimingsEnabled = originalEnabled
+        }
+
+        settings.linuxDoReadTimingsEnabled = true
+        settings.linuxDoReadTimingsNeedsVerification = true
+        let api = DiscourseAPI(baseURL: "https://linux.do")
+        NotificationCenter.default.post(
+            name: .discourseAuthDidChange,
+            object: nil,
+            userInfo: ["baseURL": "https://linux.do"]
+        )
+        withExtendedLifetime(api) {}
+        XCTAssertFalse(settings.linuxDoReadTimingsNeedsVerification)
     }
 
     func testCloudflareChallengeWinsOverSuccessStatus() {

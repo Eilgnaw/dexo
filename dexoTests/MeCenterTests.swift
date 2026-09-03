@@ -185,7 +185,7 @@ final class MeCenterTests: XCTestCase {
 
     func testLinuxDoReadTimingEntryShowsReportingState() throws {
         let menu = MeMenuView()
-        configure(menu, readTimings: true, readTimingsEnabled: false)
+        configure(menu, readTimings: true, readTimingsStatus: .disabled)
         let control = try XCTUnwrap(
             controls(in: menu).first { $0.accessibilityIdentifier == "me.read_timings" }
         )
@@ -193,14 +193,26 @@ final class MeCenterTests: XCTestCase {
             control.accessibilityValue,
             String(localized: "settings.read_timings.status.disabled")
         )
+
+        configure(menu, readTimings: true, readTimingsStatus: .verificationRequired)
+        XCTAssertEqual(
+            control.accessibilityValue,
+            String(localized: "settings.read_timings.status.verification_required")
+        )
     }
 
     func testReadTimingSettingsSwitchFollowsPersistedSettingChanges() throws {
         let settings = AppSettings.shared
         let originalValue = settings.linuxDoReadTimingsEnabled
-        defer { settings.linuxDoReadTimingsEnabled = originalValue }
+        let originalNeedsVerification = settings.linuxDoReadTimingsNeedsVerification
+        defer {
+            settings.linuxDoReadTimingsEnabled = true
+            settings.linuxDoReadTimingsNeedsVerification = originalNeedsVerification
+            settings.linuxDoReadTimingsEnabled = originalValue
+        }
 
         settings.linuxDoReadTimingsEnabled = true
+        settings.linuxDoReadTimingsNeedsVerification = false
         let controller = LinuxDoReadTimingSettingsViewController()
         controller.loadViewIfNeeded()
         controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
@@ -216,6 +228,9 @@ final class MeCenterTests: XCTestCase {
         XCTAssertFalse(reportingSwitch.isOn)
 
         settings.linuxDoReadTimingsEnabled = true
+        XCTAssertTrue(reportingSwitch.isOn)
+
+        settings.linuxDoReadTimingsNeedsVerification = true
         XCTAssertTrue(reportingSwitch.isOn)
     }
 
@@ -549,11 +564,11 @@ final class MeCenterTests: XCTestCase {
     private func configure(
         _ menu: MeMenuView, authenticated: Bool = true, following: Bool = false,
         challenge: Bool = false, readTimings: Bool = false,
-        readTimingsEnabled: Bool = true, notifications: Bool = false
+        readTimingsStatus: ReadTimingReportingStatus = .enabled, notifications: Bool = false
     ) {
         menu.configure(
             isAuthenticated: authenticated, showsFollowing: following, showsChallenge: challenge,
-            showsReadTimings: readTimings, readTimingsEnabled: readTimingsEnabled,
+            showsReadTimings: readTimings, readTimingsStatus: readTimingsStatus,
             blockedCount: 2, unreadNotifications: notifications
         )
     }

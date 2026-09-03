@@ -1,6 +1,11 @@
 import UIKit
 import WebKit
 
+enum ChallengeFlowResult: Equatable {
+    case completed
+    case cancelled
+}
+
 extension UIViewController {
     /// Presents the shared Cloudflare challenge prompt and opens the existing
     /// linux.do challenge page when the user chooses to continue.
@@ -43,12 +48,12 @@ extension UIViewController {
 
 /// Presents linux.do's `/challenge` page in a WKWebView seeded with the user's
 /// existing web-login cookies. Cookie changes are synced immediately, with a
-/// final sync on every dismissal path, so subsequent API requests use the
-/// refreshed session even when the challenge completes without a navigation.
-final class ChallengeViewController: BaseViewController {
+/// final sync on every dismissal path. Callers can distinguish the Done button
+/// from cancellation and only resume protected work after explicit completion.
+final class ChallengeViewController: BaseViewController, UIAdaptivePresentationControllerDelegate {
     private let targetURL: URL
     private let userAgent: String?
-    private let onSessionSynchronized: (() -> Void)?
+    private let onFinished: ((ChallengeFlowResult) -> Void)?
 
     private var webView: WKWebView?
     private var webCookieSession: WebCookieStore.WebViewSession?
@@ -56,7 +61,7 @@ final class ChallengeViewController: BaseViewController {
     private var setupTask: Task<Void, Never>?
     private var isFinalCookieSyncInProgress = false
     private var isObservingCookieChanges = false
-    private var didNotifySessionSynchronized = false
+    private var didFinishFlow = false
 
     private func makeWebViewConfiguration() async throws -> (WKWebViewConfiguration, AnyObject?) {
         let config = WKWebViewConfiguration()
@@ -87,11 +92,11 @@ final class ChallengeViewController: BaseViewController {
     init(
         targetURL: URL,
         userAgent: String?,
-        onSessionSynchronized: (() -> Void)? = nil
+        onFinished: ((ChallengeFlowResult) -> Void)? = nil
     ) {
         self.targetURL = targetURL
         self.userAgent = userAgent
-        self.onSessionSynchronized = onSessionSynchronized
+        self.onFinished = onFinished
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -169,7 +174,7 @@ final class ChallengeViewController: BaseViewController {
             preferredStyle: .alert
         )
         alert.addAction(UIAlertAction(title: String(localized: "action.ok"), style: .default) { [weak self] _ in
-            self?.syncAndDismiss()
+            self?.syncAndDismiss(result: .cancelled)
         })
         present(alert, animated: true)
     }
@@ -201,42 +206,37 @@ final class ChallengeViewController: BaseViewController {
 
     @objc private func cancelTapped() {
         setupTask?.cancel()
-        syncAndDismiss()
+        syncAndDismiss(result: .cancelled)
     }
 
     @objc private func doneTapped() {
-        syncAndDismiss()
+        syncAndDismiss(result: .completed)
     }
 
-    private func syncAndDismiss() {
+    private func syncAndDismiss(result: ChallengeFlowResult) {
         guard !isFinalCookieSyncInProgress else { return }
         isFinalCookieSyncInProgress = true
         Task { @MainActor in
             await syncWebSession()
-            dismiss(animated: true) { [weak self] in
-                self?.notifySessionSynchronizedOnce()
+            dismiss(animated: true) {
+                self.finishOnce(with: result)
             }
         }
     }
 
-    private func notifySessionSynchronizedOnce() {
-        guard !didNotifySessionSynchronized else { return }
-        didNotifySessionSynchronized = true
-        onSessionSynchronized?()
+    private func finishOnce(with result: ChallengeFlowResult) {
+        guard !didFinishFlow else { return }
+        didFinishFlow = true
+        onFinished?(result)
     }
 
-    override func viewWillDisappear(_ animated: Bool) {
-        super.viewWillDisappear(animated)
-        // Also cover an interactive sheet dismissal. Keep a strong Task
-        // capture until WebKit has returned its latest cookie snapshot.
-        if !isFinalCookieSyncInProgress,
-           isBeingDismissed || navigationController?.isBeingDismissed == true
-        {
-            isFinalCookieSyncInProgress = true
-            Task { @MainActor in
-                await syncWebSession()
-                notifySessionSynchronizedOnce()
-            }
+    func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
+        guard !isFinalCookieSyncInProgress else { return }
+        isFinalCookieSyncInProgress = true
+        // Keep a strong task capture until WebKit returns its final snapshot.
+        Task { @MainActor in
+            await syncWebSession()
+            finishOnce(with: .cancelled)
         }
     }
 
@@ -251,17 +251,19 @@ final class ChallengeViewController: BaseViewController {
     /// Convenience for presenting the challenge flow from any view controller.
     static func present(
         from presenter: UIViewController,
-        onSessionSynchronized: (() -> Void)? = nil
+        onFinished: ((ChallengeFlowResult) -> Void)? = nil
     ) {
         guard let url = URL(string: "https://linux.do/challenge") else { return }
         let vc = ChallengeViewController(
             targetURL: url,
             userAgent: WebCookieStore.shared.userAgent(for: url),
-            onSessionSynchronized: onSessionSynchronized
+            onFinished: onFinished
         )
         let nav = UINavigationController(rootViewController: vc)
         nav.modalPresentationStyle = .pageSheet
-        presenter.present(nav, animated: true)
+        presenter.present(nav, animated: true) {
+            nav.presentationController?.delegate = vc
+        }
     }
 
     private final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate, WKHTTPCookieStoreObserver {
