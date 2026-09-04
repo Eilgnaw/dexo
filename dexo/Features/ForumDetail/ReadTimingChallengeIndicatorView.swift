@@ -11,8 +11,11 @@ final class ReadTimingChallengeIndicatorView: UIButton {
 
     private static let buttonSize: CGFloat = 48
     private static let edgeInset: CGFloat = 16
+    private static let breathingAnimationKey = "readTimingChallenge.breathing"
 
     private let onAction: (Action) -> Void
+    private let glowLayer = CAShapeLayer()
+    private var isApplicationActive = UIApplication.shared.applicationState == .active
     private var movementBounds: CGRect = .zero
     private var dragAnchor: CGPoint = .zero
     private var hasBeenPlaced = false
@@ -36,6 +39,27 @@ final class ReadTimingChallengeIndicatorView: UIButton {
         super.layoutSubviews()
         layer.cornerRadius = bounds.height / 2
         layer.shadowPath = UIBezierPath(ovalIn: bounds).cgPath
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        glowLayer.frame = bounds
+        let ring = UIBezierPath(ovalIn: bounds.insetBy(dx: -5, dy: -5))
+        ring.append(UIBezierPath(ovalIn: bounds.insetBy(dx: -1, dy: -1)))
+        glowLayer.path = ring.cgPath
+        glowLayer.shadowPath = ring.cgPath
+        CATransaction.commit()
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        configureTheme()
+        updateBreathingAnimation()
+    }
+
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        if traitCollection.hasDifferentColorAppearance(comparedTo: previousTraitCollection) {
+            configureTheme()
+        }
     }
 
     private func setup() {
@@ -46,6 +70,13 @@ final class ReadTimingChallengeIndicatorView: UIButton {
         layer.shadowOpacity = 0.18
         layer.shadowOffset = CGSize(width: 0, height: 3)
         layer.shadowRadius = 7
+        glowLayer.name = "readTimingChallenge.glow"
+        glowLayer.fillRule = .evenOdd
+        glowLayer.shadowOpacity = 0.6
+        glowLayer.shadowOffset = .zero
+        glowLayer.shadowRadius = 5
+        glowLayer.opacity = 0.12
+        layer.insertSublayer(glowLayer, at: 0)
         accessibilityIdentifier = "read_timings.challenge.indicator"
         accessibilityLabel = String(localized: "settings.read_timings.challenge.title")
         accessibilityHint = String(localized: "settings.read_timings.challenge.indicator.hint")
@@ -60,6 +91,7 @@ final class ReadTimingChallengeIndicatorView: UIButton {
             withConfiguration: symbolConfiguration
         ) ?? UIImage(systemName: "shield.fill", withConfiguration: symbolConfiguration)
         buttonConfiguration.contentInsets = .zero
+        buttonConfiguration.cornerStyle = .capsule
         configuration = buttonConfiguration
 
         let openChallenge = UIAction(
@@ -83,6 +115,18 @@ final class ReadTimingChallengeIndicatorView: UIButton {
 
         let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
         addGestureRecognizer(pan)
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(applicationWillResignActive),
+            name: UIApplication.willResignActiveNotification, object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(applicationDidBecomeActive),
+            name: UIApplication.didBecomeActiveNotification, object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(updateBreathingAnimation),
+            name: UIAccessibility.reduceMotionStatusDidChangeNotification, object: nil
+        )
         configureTheme()
         isHidden = true
     }
@@ -91,12 +135,47 @@ final class ReadTimingChallengeIndicatorView: UIButton {
         let palette = ThemeManager.shared.profileHeaderPalette
         configuration?.baseBackgroundColor = palette.background
         configuration?.baseForegroundColor = palette.foreground
+        let glowColor = ThemeManager.shared.accentColor.resolvedColor(with: traitCollection).cgColor
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        glowLayer.fillColor = glowColor
+        glowLayer.shadowColor = glowColor
+        CATransaction.commit()
+    }
+
+    @objc private func applicationWillResignActive() {
+        isApplicationActive = false
+        updateBreathingAnimation()
+    }
+
+    @objc private func applicationDidBecomeActive() {
+        isApplicationActive = true
+        updateBreathingAnimation()
+    }
+
+    @objc private func updateBreathingAnimation() {
+        guard !isHidden, window != nil, isApplicationActive,
+              !UIAccessibility.isReduceMotionEnabled
+        else {
+            glowLayer.removeAnimation(forKey: Self.breathingAnimationKey)
+            return
+        }
+        guard glowLayer.animation(forKey: Self.breathingAnimationKey) == nil else { return }
+        let animation = CABasicAnimation(keyPath: "opacity")
+        animation.fromValue = 0.12
+        animation.toValue = 0.30
+        animation.duration = 1.4
+        animation.autoreverses = true
+        animation.repeatCount = .infinity
+        animation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        glowLayer.add(animation, forKey: Self.breathingAnimationKey)
     }
 
     func setPresented(_ presented: Bool, animated: Bool) {
         guard presented else {
             layer.removeAllAnimations()
             isHidden = true
+            updateBreathingAnimation()
             alpha = 1
             transform = .identity
             hasAnimatedAppearance = false
@@ -104,6 +183,7 @@ final class ReadTimingChallengeIndicatorView: UIButton {
         }
 
         isHidden = false
+        updateBreathingAnimation()
         guard animated,
               window != nil,
               !hasAnimatedAppearance,

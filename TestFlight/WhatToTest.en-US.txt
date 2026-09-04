@@ -1,7 +1,14 @@
-Read-time Reporting
+Linux DO Connect
 
-- Sign in to linux.do using web login, then open Me > Read-time Reporting and confirm the switch matches the status shown on the Me page.
-- Open a topic and read normally. Confirm read time is uploaded at a low frequency and that success, failure, and error details appear in Read-time Report History.
-- Confirm anonymous sessions and User API Key sessions do not upload read time.
-- If an upload triggers Cloudflare verification, confirm no alert interrupts reading and a circular shield remains visible across Home, topic, and Me screens. Drag it and confirm it snaps to either screen edge.
-- Tap the shield and choose Open Verification or Turn Off Reporting. Cancelling verification or relaunching the app should retain the Verification Needed state and keep reporting paused; tapping Done on the verification screen should hide the shield and resume reporting.
+- Sign in to linux.do and confirm Connect appears below Following on the Me page. It should be hidden when signed out and on other forums.
+- Tap Connect and confirm it opens in the in-app browser. Check back navigation gestures and the Close button.
+- With web login, check that Connect reuses the forum session and completes sign-in redirects or Cloudflare verification. Valid sessions should survive closing and reopening the browser and restarting the app. User API Key users may still need to sign in on the web page.
+- After signing out or switching Linux DO accounts, reopen Connect and confirm it does not retain the previous account.
+- Test with encrypted DNS (DoH) both on and off. Pages and sign-in redirects should load in both modes.
+
+Read-time Reporting Shield
+
+- When a read-time upload triggers Cloudflare verification, confirm no alert interrupts reading. A circular shield should appear at the screen edge with a gentle, continuous breathing glow. The button itself should stay the same size.
+- Switch between Home, topic, and Me screens, and send the app to the background and back. Confirm the shield and glow remain correct. Colors should follow light/dark appearance changes; enabling the system Reduce Motion setting should show a static shield.
+- Drag and release the shield to check that it snaps to either screen edge. Tapping it should still offer Open Verification and Turn Off Reporting.
+- Cancelling verification or relaunching the app should retain Verification Needed and keep reporting paused. Tapping Done on the verification page should hide the shield and resume reporting. Turning reporting off should hide the shield, with the Me status matching the settings switch.

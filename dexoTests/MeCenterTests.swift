@@ -165,19 +165,23 @@ final class MeCenterTests: XCTestCase {
             "me.notifications", "me.bookmarks", "me.read",
             "me.local_blocklist", "me.push_notifications", "me.logout",
         ])
-        configure(menu, following: true, challenge: true, readTimings: true)
+        configure(menu, following: true, challenge: true, connect: true, readTimings: true)
         XCTAssertEqual(actionIDs(in: menu), [
-            "me.notifications", "me.following", "me.bookmarks", "me.read",
+            "me.notifications", "me.following", "me.connect", "me.bookmarks", "me.read",
             "me.local_blocklist", "me.push_notifications", "me.read_timings",
             "me.challenge", "me.logout",
         ])
+        var selected: MeMenuView.Action?
+        menu.onAction = { selected = $0 }
+        let connect = try XCTUnwrap(controls(in: menu).first { $0.accessibilityIdentifier == "me.connect" })
+        connect.sendActions(for: .touchUpInside)
+        XCTAssertEqual(selected, .connect)
         configure(menu, following: false, challenge: false)
         XCTAssertFalse(actionIDs(in: menu).contains("me.following"))
+        XCTAssertFalse(actionIDs(in: menu).contains("me.connect"))
         XCTAssertFalse(actionIDs(in: menu).contains("me.challenge"))
         XCTAssertFalse(actionIDs(in: menu).contains("me.read_timings"))
 
-        var selected: MeMenuView.Action?
-        menu.onAction = { selected = $0 }
         let bookmarks = try XCTUnwrap(controls(in: menu).first { $0.accessibilityIdentifier == "me.bookmarks" })
         bookmarks.sendActions(for: .touchUpInside)
         XCTAssertEqual(selected, .bookmarks)
@@ -236,7 +240,7 @@ final class MeCenterTests: XCTestCase {
 
     func testLoggedOutMenuHasOnlyLoginAndCanReturnToAuthenticatedState() throws {
         let menu = MeMenuView()
-        configure(menu, authenticated: false, following: true, challenge: true)
+        configure(menu, authenticated: false, following: true, challenge: true, connect: true)
         XCTAssertEqual(actionIDs(in: menu), ["me.login"])
         var selected: MeMenuView.Action?
         menu.onAction = { selected = $0 }
@@ -563,11 +567,12 @@ final class MeCenterTests: XCTestCase {
 
     private func configure(
         _ menu: MeMenuView, authenticated: Bool = true, following: Bool = false,
-        challenge: Bool = false, readTimings: Bool = false,
+        challenge: Bool = false, connect: Bool = false, readTimings: Bool = false,
         readTimingsStatus: ReadTimingReportingStatus = .enabled, notifications: Bool = false
     ) {
         menu.configure(
             isAuthenticated: authenticated, showsFollowing: following, showsChallenge: challenge,
+            showsConnect: connect,
             showsReadTimings: readTimings, readTimingsStatus: readTimingsStatus,
             blockedCount: 2, unreadNotifications: notifications
         )

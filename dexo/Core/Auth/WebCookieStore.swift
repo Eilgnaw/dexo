@@ -14,6 +14,8 @@ final class WebCookieStore {
 
     private var userAgents: [String: String] = [:]
     private let userAgentPath: URL
+    private var sessionResetRevision = 0
+    private var sessionResetRevisionsByHost: [String: Int] = [:]
     /// Session-only tombstones for `cf_clearance` values that Cloudflare has
     /// explicitly rejected. Store hashes, never cookie values.
     private var rejectedClearanceHashesByHost: [String: Set<String>] = [:]
@@ -366,56 +368,99 @@ final class WebCookieStore {
 
     @MainActor
     func prepareWebView(_ dataStore: WKWebsiteDataStore, for url: URL, userAgent: String?) async -> WebViewSession {
-        // Seed every path for this host, not just cookies for /challenge or /.
-        // Otherwise a later snapshot would incorrectly delete path cookies.
-        let initial = snapshot(for: url)
+        await prepareWebView(dataStore, for: [url], userAgent: userAgent)
+    }
+
+    @MainActor
+    func prepareWebView(_ dataStore: WKWebsiteDataStore, for urls: [URL], userAgent: String?) async -> WebViewSession {
+        let revision = sessionRevision(for: urls)
+        // Seed all paths and all trusted hosts before taking any baseline.
+        // Parent-domain cookies shared by both hosts are inserted only once.
+        var initial: [String: HTTPCookie] = [:]
+        for url in urls {
+            initial.merge(snapshot(for: url).cookies) { existing, _ in existing }
+        }
         let cookieStore = dataStore.httpCookieStore
         let existing = await cookieStore.allCookies()
-        for cookie in snapshot(existing, for: url).cookies.values
-        where initial.cookies[snapshotKey(for: cookie)] == nil
-        {
+        let hosts = urls.compactMap(\.host)
+        for cookie in existing where hosts.contains(where: { Self.cookieDomain(cookie.domain, matchesHost: $0) })
+            && initial[snapshotKey(for: cookie)] == nil {
             await cookieStore.deleteCookie(cookie)
         }
-        for cookie in initial.cookies.values {
+        for cookie in initial.values {
             await cookieStore.setCookie(cookie)
         }
+        let seeded = await cookieStore.allCookies()
         return WebViewSession(
-            store: self, dataStore: dataStore, url: url, userAgent: userAgent,
-            snapshot: snapshot(await cookieStore.allCookies(), for: url)
+            store: self, dataStore: dataStore, urls: urls, userAgent: userAgent,
+            snapshots: urls.map { snapshot(seeded, for: $0) }, revision: revision
         )
+    }
+
+    fileprivate struct SessionRevision: Equatable {
+        let reset: Int
+        let hosts: [String: Int]
+    }
+
+    private func sessionRevision(for urls: [URL]) -> SessionRevision {
+        lock.lock()
+        defer { lock.unlock() }
+        var hosts: [String: Int] = [:]
+        for host in urls.compactMap({ $0.host?.lowercased() }) {
+            hosts[host] = sessionResetRevisionsByHost[host, default: 0]
+        }
+        return SessionRevision(reset: sessionResetRevision, hosts: hosts)
     }
 
     @MainActor
     final class WebViewSession {
         private let store: WebCookieStore
         private let dataStore: WKWebsiteDataStore
-        private let url: URL
+        private let urls: [URL]
         private let userAgent: String?
-        private var snapshot: Snapshot
+        private var snapshots: [Snapshot]
+        private let revision: SessionRevision
         private var syncTask: Task<Void, Never>?
 
-        fileprivate init(store: WebCookieStore, dataStore: WKWebsiteDataStore, url: URL, userAgent: String?, snapshot: Snapshot) {
+        fileprivate init(
+            store: WebCookieStore, dataStore: WKWebsiteDataStore, urls: [URL],
+            userAgent: String?, snapshots: [Snapshot], revision: SessionRevision
+        ) {
             self.store = store
             self.dataStore = dataStore
-            self.url = url
+            self.urls = urls
             self.userAgent = userAgent
-            self.snapshot = snapshot
+            self.snapshots = snapshots
+            self.revision = revision
+        }
+
+        var isValid: Bool {
+            revision == store.sessionRevision(for: urls)
         }
 
         func sync(from currentURL: URL?) async {
             // WebKit observers cover the entire data store, including third
-            // party pages. Only this forum's top-level page may write back.
-            guard let host = currentURL?.host, let forumHost = url.host,
-                  host.caseInsensitiveCompare(forumHost) == .orderedSame
+            // party pages. Only explicitly trusted top-level origins write back.
+            guard isValid, let currentURL,
+                  urls.contains(where: {
+                      $0.scheme?.lowercased() == currentURL.scheme?.lowercased()
+                          && $0.host?.lowercased() == currentURL.host?.lowercased()
+                          && $0.port == currentURL.port
+                  })
             else { return }
             // Cookie notifications and dismissal can overlap. Serialize their
             // snapshots so an older callback cannot undo the final sync.
             let previousTask = syncTask
             let task = Task { @MainActor in
                 await previousTask?.value
+                guard isValid else { return }
                 let cookies = await dataStore.httpCookieStore.allCookies()
-                snapshot = store.mergeWebViewCookies(cookies, for: url, since: snapshot)
-                store.setUserAgent(userAgent, for: url)
+                // Logout/relogin can occur while WebKit is returning cookies.
+                guard isValid else { return }
+                for (index, url) in urls.enumerated() {
+                    snapshots[index] = store.mergeWebViewCookies(cookies, for: url, since: snapshots[index])
+                    store.setUserAgent(userAgent, for: url)
+                }
             }
             syncTask = task
             await task.value
@@ -424,6 +469,8 @@ final class WebCookieStore {
 
     func clearAll() {
         lock.lock()
+        sessionResetRevision += 1
+        sessionResetRevisionsByHost.removeAll()
         jar.removeAll()
         userAgents.removeAll()
         rejectedClearanceHashesByHost.removeAll()
@@ -435,6 +482,7 @@ final class WebCookieStore {
     func clearCookies(for baseURL: String) {
         guard let host = URL(string: baseURL)?.host?.lowercased() else { return }
         lock.lock()
+        sessionResetRevisionsByHost[host, default: 0] += 1
         jar = jar.filter { _, cookie in
             !Self.cookieDomain(cookie.domain, matchesHost: host)
         }

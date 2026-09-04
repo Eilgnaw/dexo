@@ -5,8 +5,24 @@ import WebKit
 /// persisted forum Web session so pages that are not rendered natively still
 /// receive the user's login and Cloudflare cookies.
 final class ForumWebViewController: BaseViewController {
+    enum SessionScope {
+        case forum
+        case linuxDoConnect
+
+        static let connectURL = URL(string: "https://connect.linux.do/")!
+
+        func cookieURLs(for forumURL: URL) -> [URL] {
+            guard self == .linuxDoConnect,
+                  forumURL.scheme?.lowercased() == "https",
+                  forumURL.host?.lowercased() == "linux.do"
+            else { return [forumURL] }
+            return [forumURL, Self.connectURL]
+        }
+    }
+
     private let targetURL: URL
     private let forumURL: URL
+    private let sessionScope: SessionScope
 
     private var webView: WKWebView?
     private var webCookieSession: WebCookieStore.WebViewSession?
@@ -35,9 +51,10 @@ final class ForumWebViewController: BaseViewController {
         return progressView
     }()
 
-    init(targetURL: URL, forumURL: URL) {
+    init(targetURL: URL, forumURL: URL, sessionScope: SessionScope = .forum) {
         self.targetURL = targetURL
         self.forumURL = forumURL
+        self.sessionScope = sessionScope
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -129,6 +146,10 @@ final class ForumWebViewController: BaseViewController {
 
             await seedCookies(in: webView)
             guard !Task.isCancelled else { return }
+            guard webCookieSession?.isValid == true else {
+                dismiss(animated: true)
+                return
+            }
             webView.configuration.websiteDataStore.httpCookieStore.add(coordinator)
             isObservingCookieChanges = true
             progressView.isHidden = false
@@ -140,16 +161,16 @@ final class ForumWebViewController: BaseViewController {
     }
 
     private func seedCookies(in webView: WKWebView) async {
-        let cookies = WebCookieStore.shared.cookies(for: targetURL)
-        let cookieStore = webView.configuration.websiteDataStore.httpCookieStore
-        for cookie in cookies {
-            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-                cookieStore.setCookie(cookie) { continuation.resume() }
+        if sessionScope == .forum {
+            let cookies = WebCookieStore.shared.cookies(for: targetURL)
+            let cookieStore = webView.configuration.websiteDataStore.httpCookieStore
+            for cookie in cookies {
+                await cookieStore.setCookie(cookie)
             }
         }
         webCookieSession = await WebCookieStore.shared.prepareWebView(
             webView.configuration.websiteDataStore,
-            for: forumURL,
+            for: sessionScope.cookieURLs(for: forumURL),
             userAgent: webView.customUserAgent
         )
     }
@@ -294,12 +315,16 @@ final class ForumWebViewController: BaseViewController {
 }
 
 extension UIViewController {
-    func presentForumWebView(_ url: URL, forumBaseURL: String) {
+    func presentForumWebView(
+        _ url: URL,
+        forumBaseURL: String,
+        sessionScope: ForumWebViewController.SessionScope = .forum
+    ) {
         guard let forumURL = URL(string: forumBaseURL) else {
             UIApplication.shared.open(url)
             return
         }
-        let controller = ForumWebViewController(targetURL: url, forumURL: forumURL)
+        let controller = ForumWebViewController(targetURL: url, forumURL: forumURL, sessionScope: sessionScope)
         let navigationController = UINavigationController(rootViewController: controller)
         navigationController.modalPresentationStyle = .fullScreen
         present(navigationController, animated: true)

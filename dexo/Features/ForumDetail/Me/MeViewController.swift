@@ -196,6 +196,7 @@ final class MeViewController: ObservableViewController {
             showsFollowing: api.isLinuxDo,
             showsChallenge: isAuthenticated && api.isLinuxDo
                 && KeychainHelper.getUserApiKey(for: api.baseURL) == AuthManager.webAuthSentinel,
+            showsConnect: api.isLinuxDo,
             showsReadTimings: api.isLinuxDo,
             readTimingsStatus: readTimingsStatus,
             blockedCount: AppSettings.shared.localBlockedUsers(for: api.baseURL).count,
@@ -416,6 +417,14 @@ final class MeViewController: ObservableViewController {
         case .following:
             guard let username else { return }
             destination = FollowedUsersViewController(api: api, currentUsername: username)
+        case .connect:
+            guard api.isLinuxDo else { return }
+            presentForumWebView(
+                ForumWebViewController.SessionScope.connectURL,
+                forumBaseURL: api.baseURL,
+                sessionScope: .linuxDoConnect
+            )
+            return
         case .localBlocklist:
             destination = LocalBlocklistViewController(baseURL: api.baseURL)
         case .pushNotifications:

@@ -342,6 +342,140 @@ final class WebCookieStoreTests: XCTestCase {
         XCTAssertEqual(store.userAgent(for: forumURL), "Verified browser")
     }
 
+    func testConnectScopeOnlyAddsExplicitLinuxDoOrigin() {
+        let forum = URL(string: "https://linux.do/")!
+        let connect = ForumWebViewController.SessionScope.connectURL
+        XCTAssertEqual(ForumWebViewController.SessionScope.forum.cookieURLs(for: forum), [forum])
+        XCTAssertEqual(ForumWebViewController.SessionScope.linuxDoConnect.cookieURLs(for: forum), [forum, connect])
+        for address in ["https://other.test", "https://linux.do.evil.test", "https://sub.linux.do", "http://linux.do"] {
+            let url = URL(string: address)!
+            XCTAssertEqual(ForumWebViewController.SessionScope.linuxDoConnect.cookieURLs(for: url), [url])
+        }
+    }
+
+    func testConnectRedirectSyncsBothHostsAndPersistsSessionForReopening() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = WebCookieStore(directory: directory)
+        let forum = URL(string: "https://linux.do/")!
+        let connect = ForumWebViewController.SessionScope.connectURL
+        let dataStore = WKWebsiteDataStore.nonPersistent()
+        let login = try cookie("_t", value: "forum-login", domain: "linux.do")
+        let pathCookie = try cookie("sso-path", value: "callback", domain: "connect.linux.do", path: "/discourse")
+        store.setCookies([login, pathCookie])
+        let session = await store.prepareWebView(dataStore, for: [forum, connect], userAgent: "Verified Safari")
+        let seeded = await dataStore.httpCookieStore.allCookies()
+        XCTAssertTrue(seeded.contains { $0.name == "_t" && $0.domain == "linux.do" && $0.isSecure })
+        XCTAssertTrue(seeded.contains { $0.name == "sso-path" && $0.path == "/discourse" })
+        XCTAssertFalse(store.cookieHeader(for: connect).contains("_t="))
+
+        let connectSession = try cookie("connect-session", value: "signed-in", domain: "connect.linux.do")
+        await dataStore.httpCookieStore.setCookie(connectSession)
+        await dataStore.httpCookieStore.setCookie(try cookie("cf_clearance", value: "fresh", domain: "linux.do"))
+        // The final top-level page is Connect, after the forum's SSO response.
+        await session.sync(from: URL(string: "https://connect.linux.do/discourse/sso_callback")!)
+        XCTAssertTrue(store.cookieHeader(for: forum).contains("cf_clearance=fresh"))
+        XCTAssertEqual(store.cookieHeader(for: connect), "connect-session=signed-in")
+        XCTAssertEqual(store.userAgent(for: forum), "Verified Safari")
+        XCTAssertEqual(store.userAgent(for: connect), "Verified Safari")
+
+        // A later SSO trip ends on linux.do; unchanged WebKit state must not
+        // undo a native rotation while it saves the Connect response cookie.
+        store.setCookies([try cookie("_t", value: "native-new", domain: "linux.do")])
+        await dataStore.httpCookieStore.setCookie(try cookie("connect-session", value: "renewed", domain: "connect.linux.do"))
+        await session.sync(from: forum)
+        XCTAssertTrue(store.cookieHeader(for: forum).contains("_t=native-new"))
+        XCTAssertEqual(store.cookieHeader(for: connect), "connect-session=renewed")
+
+        let restored = WebCookieStore(directory: directory)
+        let reopenedData = WKWebsiteDataStore.nonPersistent()
+        _ = await restored.prepareWebView(reopenedData, for: [forum, connect], userAgent: restored.userAgent(for: forum))
+        let reopenedCookies = await reopenedData.httpCookieStore.allCookies()
+        XCTAssertTrue(reopenedCookies.contains { $0.name == "connect-session" && $0.value == "renewed" })
+        XCTAssertTrue(reopenedCookies.contains { $0.name == "_t" && $0.value == "native-new" })
+    }
+
+    func testConnectIgnoresUntrustedTopLevelOrigins() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = WebCookieStore(directory: directory)
+        let forum = URL(string: "https://linux.do/")!
+        let connect = ForumWebViewController.SessionScope.connectURL
+        let dataStore = WKWebsiteDataStore.nonPersistent()
+        store.setCookies([try cookie("_t", value: "original", domain: "linux.do")])
+        let session = await store.prepareWebView(dataStore, for: [forum, connect], userAgent: "Browser")
+        await dataStore.httpCookieStore.setCookie(try cookie("_t", value: "untrusted", domain: "linux.do"))
+        await dataStore.httpCookieStore.setCookie(try cookie("connect-session", value: "untrusted", domain: "connect.linux.do"))
+        for address in ["https://external.test", "https://linux.do.evil.test", "https://sub.connect.linux.do", "http://linux.do", "https://connect.linux.do:8443"] {
+            await session.sync(from: URL(string: address)!)
+        }
+        await session.sync(from: nil)
+        XCTAssertEqual(store.cookieHeader(for: forum), "_t=original")
+        XCTAssertTrue(store.cookies(for: connect).isEmpty)
+    }
+
+    func testConnectDeletionPreservesOtherSitesAndNativeRotations() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = WebCookieStore(directory: directory)
+        let forum = URL(string: "https://linux.do/")!
+        let connect = ForumWebViewController.SessionScope.connectURL
+        let other = URL(string: "https://other.test")!
+        let dataStore = WKWebsiteDataStore.nonPersistent()
+        let shared = try cookie("shared", value: "both-hosts", domain: ".linux.do")
+        let old = try cookie("connect-session", value: "old", domain: "connect.linux.do")
+        store.setCookies([shared, old, try cookie("_t", value: "unrelated", domain: "other.test")])
+        let session = await store.prepareWebView(dataStore, for: [forum, connect], userAgent: "Browser")
+        // Removal of a shared domain cookie must be reflected in both scopes.
+        await dataStore.httpCookieStore.deleteCookie(shared)
+        await dataStore.httpCookieStore.deleteCookie(old)
+        store.setCookies([try cookie("connect-session", value: "native-new", domain: "connect.linux.do")])
+        await session.sync(from: connect)
+        XCTAssertTrue(store.cookies(for: forum).isEmpty)
+        XCTAssertEqual(store.cookieHeader(for: connect), "connect-session=native-new")
+        XCTAssertEqual(store.cookieHeader(for: other), "_t=unrelated")
+
+        store.setCookies([try cookie("expired", value: "stale", domain: "connect.linux.do", expires: Date().addingTimeInterval(-60))])
+        let nextData = WKWebsiteDataStore.nonPersistent()
+        _ = await store.prepareWebView(nextData, for: [forum, connect], userAgent: "Browser")
+        let nextCookies = await nextData.httpCookieStore.allCookies()
+        XCTAssertFalse(nextCookies.contains { $0.name == "expired" })
+    }
+
+    func testForumAccountResetInvalidatesConnectSyncAndClearsStaleWebKitSession() async throws {
+        let directory = temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = WebCookieStore(directory: directory)
+        let forum = URL(string: "https://linux.do/")!
+        let connect = ForumWebViewController.SessionScope.connectURL
+        let other = URL(string: "https://other.test")!
+        let dataStore = WKWebsiteDataStore.nonPersistent()
+        store.setCookies([
+            try cookie("_t", value: "old-account", domain: "linux.do"),
+            try cookie("connect-session", value: "old-account", domain: "connect.linux.do"),
+            try cookie("_t", value: "other-account", domain: "other.test"),
+        ])
+        store.setUserAgent("Old browser", for: connect)
+        let oldSession = await store.prepareWebView(dataStore, for: [forum, connect], userAgent: "Old browser")
+        AuthManager.clearWebSession(for: forum.absoluteString, cookieStore: store)
+        XCTAssertFalse(oldSession.isValid)
+        XCTAssertTrue(store.cookies(for: connect).isEmpty)
+        XCTAssertNil(store.userAgent(for: connect))
+        store.setCookies([try cookie("_t", value: "new-account", domain: "linux.do")])
+        await dataStore.httpCookieStore.setCookie(try cookie("connect-session", value: "late-old-response", domain: "connect.linux.do"))
+        await oldSession.sync(from: connect)
+        XCTAssertTrue(store.cookies(for: connect).isEmpty)
+
+        let nextSession = await store.prepareWebView(dataStore, for: [forum, connect], userAgent: "New browser")
+        let seeded = await dataStore.httpCookieStore.allCookies()
+        XCTAssertFalse(seeded.contains { $0.name == "connect-session" })
+        XCTAssertTrue(seeded.contains { $0.name == "_t" && $0.value == "new-account" })
+        XCTAssertTrue(nextSession.isValid)
+        XCTAssertEqual(store.cookieHeader(for: other), "_t=other-account")
+        store.clearAll()
+        XCTAssertFalse(nextSession.isValid)
+    }
+
     private func temporaryDirectory() -> URL {
         FileManager.default.temporaryDirectory.appendingPathComponent("dexo-cookie-tests-\(UUID().uuidString)")
     }

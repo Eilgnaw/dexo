@@ -46,18 +46,44 @@ final class ReadTimingChallengeIndicatorTests: XCTestCase {
         XCTAssertEqual(selections, [.openChallenge, .disableReporting])
     }
 
-    func testPresentationAnimationRunsAtMostOnceUntilHidden() {
+    func testBreathingSurvivesPresentationUpdatesAndRestartsAfterVisibilityChanges() throws {
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
         let indicator = ReadTimingChallengeIndicatorView { _ in }
         window.addSubview(indicator)
         indicator.updatePlacement(in: window.bounds)
+        indicator.layoutIfNeeded()
+        NotificationCenter.default.post(name: UIApplication.didBecomeActiveNotification, object: nil)
+        let glow = try XCTUnwrap(indicator.layer.sublayers?.first { $0.name == "readTimingChallenge.glow" })
 
         indicator.setPresented(true, animated: false)
         XCTAssertFalse(indicator.isHidden)
+        XCTAssertEqual(indicator.bounds.size, CGSize(width: 48, height: 48))
+        XCTAssertEqual(indicator.configuration?.cornerStyle, .capsule)
+        XCTAssertEqual(indicator.layer.cornerRadius, 24)
+        if !UIAccessibility.isReduceMotionEnabled {
+            let key = try XCTUnwrap(glow.animationKeys()?.first)
+            let started = try XCTUnwrap(glow.animation(forKey: key)).beginTime
+            indicator.setPresented(true, animated: false)
+            indicator.configureTheme()
+            indicator.layoutIfNeeded()
+            XCTAssertEqual(glow.animationKeys(), [key])
+            XCTAssertEqual(glow.animation(forKey: key)?.beginTime, started)
+        }
+        NotificationCenter.default.post(name: UIApplication.willResignActiveNotification, object: nil)
+        XCTAssertTrue(glow.animationKeys()?.isEmpty ?? true)
+        NotificationCenter.default.post(name: UIApplication.didBecomeActiveNotification, object: nil)
+        XCTAssertEqual(!(glow.animationKeys()?.isEmpty ?? true), !UIAccessibility.isReduceMotionEnabled)
+
         indicator.setPresented(false, animated: false)
         XCTAssertTrue(indicator.isHidden)
+        XCTAssertTrue(glow.animationKeys()?.isEmpty ?? true)
         indicator.setPresented(true, animated: false)
         XCTAssertFalse(indicator.isHidden)
+        XCTAssertEqual(!(glow.animationKeys()?.isEmpty ?? true), !UIAccessibility.isReduceMotionEnabled)
+        indicator.removeFromSuperview()
+        XCTAssertTrue(glow.animationKeys()?.isEmpty ?? true)
+        window.addSubview(indicator)
+        XCTAssertEqual(!(glow.animationKeys()?.isEmpty ?? true), !UIAccessibility.isReduceMotionEnabled)
     }
 }
 

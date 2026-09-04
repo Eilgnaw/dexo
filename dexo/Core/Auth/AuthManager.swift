@@ -184,10 +184,13 @@ final class AuthManager: @unchecked Sendable {
                 if let previousWebSession {
                     endWebSession(previousWebSession)
                 }
-                WebCookieStore.shared.clearCookies(for: baseURL)
             } else if previousCredential != authPayload.key {
                 revokeApiKey(previousCredential, baseURL: baseURL)
             }
+        }
+        if previousCredential == AuthManager.webAuthSentinel
+            || URL(string: baseURL)?.host?.lowercased() == "linux.do" {
+            Self.clearWebSession(for: baseURL)
         }
 
         // Clean up RSA key pair (no longer needed)
@@ -236,7 +239,7 @@ final class AuthManager: @unchecked Sendable {
             endWebSession(previousWebSession)
         }
 
-        WebCookieStore.shared.clearCookies(for: baseURL)
+        Self.clearWebSession(for: baseURL)
         WebCookieStore.shared.setCookies(cookies)
         WebCookieStore.shared.setUserAgent(userAgent ?? previousWebSession?.userAgent, for: webSessionURL)
         KeychainHelper.deleteRSAKeyPair(for: baseURL)
@@ -314,6 +317,15 @@ final class AuthManager: @unchecked Sendable {
         Task { await Self.revokeApiKeyOnServer(apiKey, baseURL: baseURL) }
     }
 
+    static func clearWebSession(for baseURL: String, cookieStore: WebCookieStore = .shared) {
+        cookieStore.clearCookies(for: baseURL)
+        if URL(string: baseURL)?.host?.lowercased() == "linux.do" {
+            // Connect has its own SSO session. Drop it whenever the forum
+            // credential changes; browser preparation clears stale WebKit copies.
+            cookieStore.clearCookies(for: ForumWebViewController.SessionScope.connectURL.absoluteString)
+        }
+    }
+
     func logout(forum: ForumInstance) {
         let baseURL = forum.baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
 
@@ -334,7 +346,7 @@ final class AuthManager: @unchecked Sendable {
 
         KeychainHelper.deleteUserApiKey(for: baseURL)
         KeychainHelper.deleteRSAKeyPair(for: baseURL)
-        WebCookieStore.shared.clearCookies(for: baseURL)
+        Self.clearWebSession(for: baseURL)
         usernameCache.removeValue(forKey: baseURL)
 
         // Clear username from DB
@@ -356,7 +368,7 @@ final class AuthManager: @unchecked Sendable {
             KeychainHelper.deleteRSAKeyPair(for: key)
             usernameCache.removeValue(forKey: key)
         }
-        WebCookieStore.shared.clearCookies(for: normalized)
+        Self.clearWebSession(for: normalized)
         postAuthChange(for: normalized)
     }
 

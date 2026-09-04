@@ -3,7 +3,7 @@ import UIKit
 /// The rounded functional sheet below the accent-colored profile header.
 final class MeMenuView: ProfileMenuSheetView {
     enum Action: String {
-        case messages, notifications, following, bookmarks, read
+        case messages, notifications, following, connect, bookmarks, read
         case localBlocklist = "local_blocklist"
         case pushNotifications = "push_notifications"
         case readTimings = "read_timings"
@@ -14,6 +14,7 @@ final class MeMenuView: ProfileMenuSheetView {
             case .messages: return String(localized: "me.messages")
             case .notifications: return String(localized: "me.notifications")
             case .following: return String(localized: "me.following")
+            case .connect: return String(localized: "me.connect")
             case .bookmarks: return String(localized: "me.bookmarks")
             case .read: return String(localized: "me.read")
             case .localBlocklist: return String(localized: "me.local_blocklist")
@@ -30,6 +31,7 @@ final class MeMenuView: ProfileMenuSheetView {
             case .messages: return "envelope"
             case .notifications: return "bell"
             case .following: return "person.2"
+            case .connect: return "link"
             case .bookmarks: return "bookmark"
             case .read: return "checkmark.circle"
             case .localBlocklist: return "person.crop.circle.badge.xmark"
@@ -52,7 +54,7 @@ final class MeMenuView: ProfileMenuSheetView {
     override init(frame: CGRect) {
         super.init(frame: frame)
         accessibilityIdentifier = "me.menu"
-        let community = makeRows(actions: [.notifications, .following])
+        let community = makeRows(actions: [.notifications, .following, .connect])
         let reading = makeSection(
             title: String(localized: "me.section.reading"),
             actions: [.bookmarks, .read]
@@ -104,6 +106,7 @@ final class MeMenuView: ProfileMenuSheetView {
         isAuthenticated: Bool,
         showsFollowing: Bool,
         showsChallenge: Bool,
+        showsConnect: Bool = false,
         showsReadTimings: Bool = false,
         readTimingsStatus: ReadTimingReportingStatus = .enabled,
         blockedCount: Int,
@@ -119,6 +122,9 @@ final class MeMenuView: ProfileMenuSheetView {
         }
         if let following = controls[.following], let community = rowGroups.first {
             setVisible(showsFollowing, view: following, in: community, at: 1)
+        }
+        if let connect = controls[.connect], let community = rowGroups.first {
+            setVisible(showsConnect, view: connect, in: community, at: 2)
         }
         if let readTimings = controls[.readTimings], let preferences = rowGroups.last {
             setVisible(showsReadTimings, view: readTimings, in: preferences, at: 2)
