@@ -3,6 +3,69 @@ import XCTest
 @testable import dexo
 
 @MainActor
+final class ReadTimingSettingsTests: XCTestCase {
+    func testTogglingReportingKeepsTheActiveSwitchInItsCell() throws {
+        let settings = AppSettings.shared
+        let wasEnabled = settings.linuxDoReadTimingsEnabled
+        let neededVerification = settings.linuxDoReadTimingsNeedsVerification
+        defer {
+            settings.linuxDoReadTimingsEnabled = wasEnabled
+            settings.linuxDoReadTimingsNeedsVerification = neededVerification
+        }
+        settings.linuxDoReadTimingsEnabled = false
+
+        let controller = LinuxDoReadTimingSettingsViewController()
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        window.rootViewController = controller
+        window.makeKeyAndVisible()
+        defer {
+            window.isHidden = true
+            window.rootViewController = nil
+        }
+        controller.view.layoutIfNeeded()
+        let table = try XCTUnwrap(controller.view.subviews.compactMap { $0 as? UITableView }.first)
+        let indexPath = IndexPath(row: 0, section: 0)
+        let originalCell = try XCTUnwrap(table.cellForRow(at: indexPath))
+        let toggle = try XCTUnwrap(originalCell.accessoryView as? UISwitch)
+
+        for enabled in [true, false, true, false] {
+            toggle.setOn(enabled, animated: false)
+            toggle.sendActions(for: .valueChanged)
+            controller.view.layoutIfNeeded()
+            XCTAssertEqual(settings.linuxDoReadTimingsEnabled, enabled)
+            XCTAssertEqual(toggle.isOn, enabled)
+            XCTAssertTrue(table.cellForRow(at: indexPath) === originalCell,
+                          "The cell containing the active control must survive its valueChanged callback")
+            XCTAssertTrue(toggle.isDescendant(of: originalCell))
+        }
+
+        // A background upload can require verification while this page is
+        // visible. That notification must update the subtitle in place too.
+        settings.linuxDoReadTimingsEnabled = true
+        settings.linuxDoReadTimingsNeedsVerification = true
+        controller.view.layoutIfNeeded()
+        XCTAssertTrue(toggle.isOn)
+        XCTAssertTrue(table.cellForRow(at: indexPath) === originalCell)
+        XCTAssertEqual(
+            originalCell.detailTextLabel?.text,
+            String(localized: "settings.read_timings.linux_do.verification_required_subtitle")
+        )
+
+        toggle.setOn(false, animated: false)
+        toggle.sendActions(for: .valueChanged)
+        controller.view.layoutIfNeeded()
+        XCTAssertFalse(settings.linuxDoReadTimingsNeedsVerification)
+        XCTAssertFalse(settings.linuxDoReadTimingsEnabled)
+        XCTAssertTrue(table.cellForRow(at: indexPath) === originalCell)
+        XCTAssertTrue(toggle.isDescendant(of: originalCell))
+        XCTAssertEqual(
+            originalCell.detailTextLabel?.text,
+            String(localized: "settings.read_timings.linux_do.subtitle")
+        )
+    }
+}
+
+@MainActor
 final class ReadTimingChallengeIndicatorTests: XCTestCase {
     func testDefaultPlacementClampsAndSnapsToEitherSafeEdge() {
         let indicator = ReadTimingChallengeIndicatorView { _ in }

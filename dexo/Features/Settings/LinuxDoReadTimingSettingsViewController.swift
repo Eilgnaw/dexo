@@ -66,7 +66,15 @@ final class LinuxDoReadTimingSettingsViewController: BaseViewController {
     @objc private func reportingSettingDidChange(_ notification: Notification) {
         guard isViewLoaded else { return }
         synchronizeReportingSwitch()
-        tableView.reloadSections(IndexSet(integer: Section.reporting.rawValue), with: .none)
+        // A section reload leaves the outgoing cell alive during the update.
+        // Giving its switch to the replacement cell makes both accessory
+        // managers repeatedly reclaim it, trapping UIKit in a layout loop.
+        // Keep the active control and its cell in place instead.
+        if let cell = tableView.cellForRow(
+            at: IndexPath(row: 0, section: Section.reporting.rawValue)
+        ) {
+            configureReportingDescription(cell)
+        }
     }
 
     @objc private func reportingSwitchChanged(_ sender: UISwitch) {
@@ -76,6 +84,13 @@ final class LinuxDoReadTimingSettingsViewController: BaseViewController {
 
     private func synchronizeReportingSwitch() {
         reportingSwitch.setOn(settings.linuxDoReadTimingsEnabled, animated: false)
+    }
+
+    private func configureReportingDescription(_ cell: UITableViewCell) {
+        cell.detailTextLabel?.text = settings.linuxDoReadTimingsNeedsVerification
+            ? String(localized: "settings.read_timings.linux_do.verification_required_subtitle")
+            : String(localized: "settings.read_timings.linux_do.subtitle")
+        cell.setNeedsLayout()
     }
 }
 
@@ -110,9 +125,7 @@ extension LinuxDoReadTimingSettingsViewController: UITableViewDataSource {
             cell.detailTextLabel?.font = FontManager.shared.font(size: 13)
             cell.detailTextLabel?.textColor = .secondaryLabel
             cell.textLabel?.text = String(localized: "settings.read_timings.linux_do")
-            cell.detailTextLabel?.text = settings.linuxDoReadTimingsNeedsVerification
-                ? String(localized: "settings.read_timings.linux_do.verification_required_subtitle")
-                : String(localized: "settings.read_timings.linux_do.subtitle")
+            configureReportingDescription(cell)
             cell.selectionStyle = .none
             synchronizeReportingSwitch()
             cell.accessoryView = reportingSwitch

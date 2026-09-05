@@ -1,3 +1,9 @@
+Read-time Reporting Switch Freeze Fix
+
+- Fixed an issue that could freeze the interface when toggling read-time reporting.
+- Open read-time reporting settings from Me and repeatedly turn the switch on and off. Confirm the page stays responsive and the switch retains its state after leaving and reopening the page.
+- When reporting requires verification, confirm the settings description updates. Turning reporting off should clear Verification Needed and hide the shield without freezing the page.
+
 Linux DO Connect
 
 - Sign in to linux.do and confirm Connect appears below Following on the Me page. It should be hidden when signed out and on other forums.
