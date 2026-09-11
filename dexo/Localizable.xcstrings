@@ -2040,6 +2040,22 @@
         }
       }
     },
+    "forum.default.python.title" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Discussions on Python.org"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Python 官方论坛"
+          }
+        }
+      }
+    },
     "forum.empty.add" : {
       "localizations" : {
         "en" : {

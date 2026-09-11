@@ -5,7 +5,6 @@ final class ForumListViewController: ObservableViewController {
 
     private let viewModel = ForumListViewModel()
     private let settings = AppSettings.shared
-    private var hasAttemptedAutoOpen = false
 
     private let emptyStateImageView: UIImageView = {
         let imageView = UIImageView(image: UIImage(systemName: "rectangle.stack.badge.plus"))
@@ -111,17 +110,6 @@ final class ForumListViewController: ObservableViewController {
         ])
 
         viewModel.loadForums()
-    }
-
-    override func viewDidAppear(_ animated: Bool) {
-        super.viewDidAppear(animated)
-        guard !hasAttemptedAutoOpen else { return }
-        hasAttemptedAutoOpen = true
-        guard settings.autoOpenLastForum,
-              let lastId = settings.lastOpenedForumId,
-              let forum = viewModel.forums.first(where: { $0.id == lastId }),
-              let window = view.window else { return }
-        openForum(forum, in: window, showAutoOpenPrompt: false)
     }
 
     override func updateUI() {

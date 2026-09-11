@@ -60,6 +60,19 @@ final class AppSettings {
 
     // MARK: - General
 
+    enum DefaultForumInitialization: String {
+        case pending
+        case completed
+    }
+
+    var defaultForumInitialization: DefaultForumInitialization? {
+        get {
+            defaults.string(forKey: "defaultForumInitialization")
+                .flatMap(DefaultForumInitialization.init(rawValue:))
+        }
+        set { defaults.set(newValue?.rawValue, forKey: "defaultForumInitialization") }
+    }
+
     var autoOpenLastForum: Bool {
         get { defaults.bool(forKey: "autoOpenLastForum") }
         set { defaults.set(newValue, forKey: "autoOpenLastForum") }

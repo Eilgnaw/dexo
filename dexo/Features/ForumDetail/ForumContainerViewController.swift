@@ -8,6 +8,7 @@ final class ForumContainerViewController: BaseViewController, AuthGating {
     private struct PendingPushDestination {
         let topicID: Int
         let floor: Int?
+        let animated: Bool
         let completion: () -> Void
     }
 
@@ -100,6 +101,7 @@ final class ForumContainerViewController: BaseViewController, AuthGating {
     @discardableResult
     func openPushNotification(
         relativeURL: String,
+        animated: Bool = true,
         completion: @escaping () -> Void = {}
     ) -> Bool {
         guard let destination = URL(string: relativeURL, relativeTo: URL(string: api.baseURL))?.absoluteURL,
@@ -109,6 +111,7 @@ final class ForumContainerViewController: BaseViewController, AuthGating {
         pendingPushDestination = PendingPushDestination(
             topicID: route.topicID,
             floor: route.floor,
+            animated: animated,
             completion: completion
         )
         openPendingPushDestinationIfPossible()
@@ -132,7 +135,7 @@ final class ForumContainerViewController: BaseViewController, AuthGating {
             initialFloor: destination.floor
         )
         navigationController.popToRootViewController(animated: false)
-        navigationController.pushViewController(viewController, animated: true)
+        navigationController.pushViewController(viewController, animated: destination.animated)
         destination.completion()
     }
 

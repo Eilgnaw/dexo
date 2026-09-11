@@ -28,7 +28,7 @@ final class ForumOverlayManager {
     // MARK: - Present
 
     @discardableResult
-    func present(forum: ForumInstance, in window: UIWindow) -> ForumContainerViewController? {
+    func present(forum: ForumInstance, in window: UIWindow, animated: Bool = true) -> ForumContainerViewController? {
         // The forum-list screen offers the user an explicit HTTPS migration.
         // Keep this lower-level entry point fail-closed for every other caller.
         guard ForumURLPolicy.isSecure(forum.baseURL) else { return nil }
@@ -37,7 +37,7 @@ final class ForumOverlayManager {
            mainWindow === window,
            isSameForum(currentContainer.forum, forum) {
             if isMinimized {
-                restore()
+                restore(animated: animated)
             } else {
                 overlayWindow?.isHidden = false
                 overlayWindow?.makeKeyAndVisible()
@@ -61,14 +61,19 @@ final class ForumOverlayManager {
         overlay.rootViewController = containerVC
         overlay.windowLevel = .normal
         overlay.overrideUserInterfaceStyle = window.overrideUserInterfaceStyle
-        overlay.makeKeyAndVisible()
-        overlayWindow = overlay
-
-        // Animate in from bottom
+        ThemeManager.shared.apply(to: overlay)
+        overlay.backgroundColor = ThemeManager.shared.backgroundColor
         overlay.frame = window.bounds
-        overlay.transform = CGAffineTransform(translationX: 0, y: window.bounds.height)
-        UIView.animate(withDuration: 0.45, delay: 0, usingSpringWithDamping: 0.9, initialSpringVelocity: 0) {
-            overlay.transform = .identity
+        overlayWindow = overlay
+        overlay.makeKeyAndVisible()
+
+        if animated {
+            // UIKit establishes the window geometry when it becomes visible.
+            // Applying a transform earlier can shift its final frame offscreen.
+            overlay.transform = CGAffineTransform(translationX: 0, y: window.bounds.height)
+            UIView.animate(withDuration: 0.45, delay: 0, usingSpringWithDamping: 0.9, initialSpringVelocity: 0) {
+                overlay.transform = .identity
+            }
         }
         return containerVC
     }
@@ -140,7 +145,7 @@ final class ForumOverlayManager {
 
     // MARK: - Restore
 
-    func restore() {
+    func restore(animated: Bool = true) {
         guard let _ = currentContainer,
               let mainWindow,
               let overlayWindow,
@@ -152,6 +157,11 @@ final class ForumOverlayManager {
         let startCenter = floatingButton?.center ?? floatingButtonCenter
 
         removeFloatingButton()
+
+        if !animated {
+            overlayWindow.makeKeyAndVisible()
+            return
+        }
 
         // Show overlay briefly to get snapshot, then hide again for animation
         overlayWindow.isHidden = false

@@ -55,6 +55,12 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         // ImageBrowserController draws its own dot-style page indicator.
         LightboxConfig.PageIndicator.enabled = false
 
+        do {
+            try ForumLaunchCoordinator(database: .shared, settings: .shared).initializeDefaultForum()
+        } catch {
+            debugLog("[Launch] Default forum initialization failed: \(error)")
+        }
+
         if let forums = try? DatabaseManager.shared.fetchAllForums() {
             for forum in forums {
                 AuthManager.shared.restoreAuthState(for: forum)

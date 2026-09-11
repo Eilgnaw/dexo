@@ -1,20 +1,22 @@
-Read-time Reporting Switch Freeze Fix
+First Launch and Default Forum
 
-- Fixed an issue that could freeze the interface when toggling read-time reporting.
-- Open read-time reporting settings from Me and repeatedly turn the switch on and off. Confirm the page stays responsive and the switch retains its state after leaving and reopening the page.
-- When reporting requires verification, confirm the settings description updates. Turning reporting off should clear Verification Needed and hide the shield without freezing the page.
+- On a fresh installation, confirm https://discuss.python.org is added and opened automatically. Browse public topics, categories, and search without signing in. Auto-open Last Forum should be enabled by default, with no extra prompt to enable it.
+- Upgrade directly from an older build. Existing forums, sign-in sessions, and the auto-open preference should be preserved. Existing users with an empty forum list should not receive a default forum automatically.
+- Delete the default forum and relaunch. It should not be added again. On an offline first launch, the default forum should still be created, and you should be able to return to the forum list after a loading error.
 
-Linux DO Connect
+Direct Cold Launch
 
-- Sign in to linux.do and confirm Connect appears below Following on the Me page. It should be hidden when signed out and on other forums.
-- Tap Connect and confirm it opens in the in-app browser. Check back navigation gestures and the Close button.
-- With web login, check that Connect reuses the forum session and completes sign-in redirects or Cloudflare verification. Valid sessions should survive closing and reopening the browser and restarting the app. User API Key users may still need to sign in on the web page.
-- After signing out or switching Linux DO accounts, reopen Connect and confirm it does not retain the previous account.
-- Test with encrypted DNS (DoH) both on and off. Pages and sign-in redirects should load in both modes.
+- Enable Auto-open Last Forum, enter a forum, fully terminate the app, and launch it again. The forum should appear directly without flashing the forum list or sliding in from the bottom.
+- Disable the setting and relaunch. The app should stay on the forum list. Deleting the last-opened forum should also make the next launch return to the list.
 
-Read-time Reporting Shield
+Returning and Switching Forums
 
-- When a read-time upload triggers Cloudflare verification, confirm no alert interrupts reading. A circular shield should appear at the screen edge with a gentle, continuous breathing glow. The button itself should stay the same size.
-- Switch between Home, topic, and Me screens, and send the app to the background and back. Confirm the shield and glow remain correct. Colors should follow light/dark appearance changes; enabling the system Reduce Motion setting should show a static shield.
-- Drag and release the shield to check that it snaps to either screen edge. Tapping it should still offer Open Verification and Turn Off Reporting.
-- Cancelling verification or relaunching the app should retain Verification Needed and keep reporting paused. Tapping Done on the verification page should hide the shield and resume reporting. Turning reporting off should hide the shield, with the Me status matching the settings switch.
+- Tap the circular button in the top-right of a forum. Confirm the forum list and floating shortcut appear. Tap the shortcut or the same forum in the list to resume at the previous reading position.
+- Switch between multiple forums. Manual opens should retain their normal animation without moving the window offscreen, hiding it, or leaving a blank page.
+- After returning to the list, confirm you can add or delete forums and open Settings without being sent back into a forum automatically.
+- Check navigation bars, safe areas, light/dark appearance, and font-size changes on both iPhone and iPad.
+
+Opening Notifications
+
+- With the app fully terminated, tap a system notification. It should open the notification's forum and topic, take priority over the last-opened forum, and avoid opening the same page twice.
+- If the notification's forum has been deleted, the app should show an explanation and leave the forum list usable.

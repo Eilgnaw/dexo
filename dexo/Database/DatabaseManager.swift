@@ -5,6 +5,8 @@ final class DatabaseManager: Sendable {
     static let shared = DatabaseManager()
 
     private let dbPool: DatabasePool
+    /// Captured before SQLite creates the file; an empty existing store is not a new install.
+    let wasCreatedOnOpen: Bool
 
     private init() {
         do {
@@ -16,6 +18,7 @@ final class DatabaseManager: Sendable {
                 create: true
             )
             let dbURL = appSupport.appendingPathComponent("dexo.sqlite")
+            wasCreatedOnOpen = !fileManager.fileExists(atPath: dbURL.path)
             dbPool = try DatabasePool(path: dbURL.path)
             try migrator.migrate(dbPool)
         } catch {
@@ -27,6 +30,7 @@ final class DatabaseManager: Sendable {
     /// `shared`, while tests can validate migrations and retention without
     /// touching the app's real Application Support container.
     init(testingPath path: String) throws {
+        wasCreatedOnOpen = !FileManager.default.fileExists(atPath: path)
         dbPool = try DatabasePool(path: path)
         try migrator.migrate(dbPool)
     }

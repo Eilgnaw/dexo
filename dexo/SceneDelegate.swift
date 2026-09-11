@@ -10,9 +10,22 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         window.rootViewController = MainTabBarController()
         window.overrideUserInterfaceStyle = AppSettings.shared.appearanceMode.userInterfaceStyle
         ThemeManager.shared.apply(to: window)
-        window.makeKeyAndVisible()
+        window.backgroundColor = ThemeManager.shared.backgroundColor
         self.window = window
-        PushDeepLinkCoordinator.shared.activate(window: window)
+
+        let notificationOwnsLaunch = PushDeepLinkCoordinator.shared.activate(
+            window: window,
+            launchResponse: connectionOptions.notificationResponse
+        )
+        let launch = ForumLaunchCoordinator(database: .shared, settings: .shared)
+        if let forum = try? launch.startupForum(hasPendingNotification: notificationOwnsLaunch) {
+            // Keep the list window hidden until the user minimizes the forum.
+            if ForumOverlayManager.shared.present(forum: forum, in: window, animated: false) == nil {
+                window.makeKeyAndVisible()
+            }
+        } else if !notificationOwnsLaunch {
+            window.makeKeyAndVisible()
+        }
 
         #if DEBUG
         FPSOverlay.shared.install(on: windowScene)

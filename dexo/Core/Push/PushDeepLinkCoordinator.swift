@@ -6,60 +6,89 @@ import UserNotifications
 final class PushDeepLinkCoordinator {
     static let shared = PushDeepLinkCoordinator()
 
-    private struct Destination {
+    struct ResponseIdentity: Hashable {
+        let notificationIdentifier: String
+        let deliveryDate: Date
+        let actionIdentifier: String
+    }
+
+    struct Destination {
         let forumBaseURL: String
         let relativeURL: String
         let notificationIdentifier: String
         let threadIdentifier: String
+        let responseIdentity: ResponseIdentity
     }
 
     private weak var window: UIWindow?
-    private var pendingDestination: Destination?
+    private(set) var pendingDestination: Destination?
+    private var receivedResponses: Set<ResponseIdentity> = []
 
-    private init() {}
+    init() {}
 
-    func activate(window: UIWindow) {
+    /// Returns true when a notification owns this launch, even if its forum is unavailable.
+    @discardableResult
+    func activate(window: UIWindow, launchResponse: UNNotificationResponse? = nil) -> Bool {
         self.window = window
-        openPendingDestinationIfPossible()
+        if let launchResponse {
+            enqueue(response: launchResponse)
+        }
+        let hasDestination = pendingDestination != nil
+        openPendingDestinationIfPossible(animated: false)
+        return hasDestination
     }
 
     func receive(response: UNNotificationResponse) {
+        enqueue(response: response)
+        openPendingDestinationIfPossible()
+    }
+
+    private func enqueue(response: UNNotificationResponse) {
         let notification = response.notification
         let content = notification.request.content
         let userInfo = content.userInfo
         guard let forumBaseURL = userInfo["dexo_forum_base_url"] as? String,
               let relativeURL = userInfo["dexo_relative_url"] as? String else { return }
-        pendingDestination = Destination(
+        enqueue(Destination(
             forumBaseURL: forumBaseURL,
             relativeURL: relativeURL,
             notificationIdentifier: notification.request.identifier,
-            threadIdentifier: content.threadIdentifier
-        )
-        openPendingDestinationIfPossible()
+            threadIdentifier: content.threadIdentifier,
+            responseIdentity: ResponseIdentity(
+                notificationIdentifier: notification.request.identifier,
+                deliveryDate: notification.date,
+                actionIdentifier: response.actionIdentifier
+            )
+        ))
     }
 
-    private func openPendingDestinationIfPossible() {
+    func enqueue(_ destination: Destination) {
+        // Scene connection and the notification delegate can deliver the same response.
+        guard receivedResponses.insert(destination.responseIdentity).inserted else { return }
+        pendingDestination = destination
+    }
+
+    private func openPendingDestinationIfPossible(animated: Bool = true) {
         guard let destination = pendingDestination, let window else { return }
+        pendingDestination = nil
         guard let forums = try? DatabaseManager.shared.fetchAllForums(),
               let forum = forums.first(where: {
                 Self.normalized($0.baseURL) == Self.normalized(destination.forumBaseURL)
               }) else {
-            pendingDestination = nil
             presentNavigationError(message: String(localized: "push.navigation.forum_unavailable"))
             return
         }
-        guard let container = ForumOverlayManager.shared.present(forum: forum, in: window) else {
-            pendingDestination = nil
+        guard let container = ForumOverlayManager.shared.present(forum: forum, in: window, animated: animated) else {
             presentNavigationError(message: String(localized: "push.navigation.forum_unavailable"))
             return
         }
         AppSettings.shared.lastOpenedForumId = forum.id
         let accepted = container.openPushNotification(
-            relativeURL: destination.relativeURL
+            relativeURL: destination.relativeURL,
+            animated: animated
         ) { [weak self] in
             self?.clearDeliveredNotifications(matching: destination)
         }
-        pendingDestination = nil
         if !accepted {
             presentNavigationError(message: String(localized: "push.navigation.destination_unavailable"))
         }
@@ -97,8 +126,21 @@ final class PushDeepLinkCoordinator {
     }
 
     private func presentNavigationError(message: String) {
-        guard let window,
-              let root = ForumOverlayManager.shared.currentContainer ?? window.rootViewController,
+        guard let window else { return }
+        let visibleForum = ForumOverlayManager.shared.currentContainer.flatMap {
+            $0.viewIfLoaded?.window?.isHidden == false ? $0 : nil
+        }
+        if visibleForum == nil {
+            window.makeKeyAndVisible()
+        }
+        // During scene connection the selected root has not completed its appearance yet.
+        DispatchQueue.main.async { [weak self] in
+            self?.showNavigationError(message: message, from: visibleForum ?? window.rootViewController)
+        }
+    }
+
+    private func showNavigationError(message: String, from root: UIViewController?) {
+        guard let root,
               let presenter = topViewController(from: root),
               presenter.presentedViewController == nil else { return }
         let alert = UIAlertController(
