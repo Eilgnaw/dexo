@@ -310,8 +310,8 @@ final class DiscourseAPI {
         }
     }
 
-    /// linux.do's `/session/current.json` returns an empty body, so callers must skip it
-    /// and derive the username from `/notifications.json` instead.
+    /// linux.do's `/session/current.json` returns an empty body. Web login reads
+    /// the page identity; other flows can fall back to `/notifications.json`.
     var isLinuxDo: Bool {
         URL(string: baseURL)?.host?.lowercased() == "linux.do"
     }

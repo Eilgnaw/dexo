@@ -8435,6 +8435,38 @@
         }
       }
     },
+    "weblogin.loading" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Finishing login…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在完成登录…"
+          }
+        }
+      }
+    },
+    "weblogin.username.missing" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Could not read your username. Finish logging in and wait for the forum page to load, then tap Done again."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "暂时无法读取用户名。请完成网页登录，等待论坛页面加载后，再点击“完成”。"
+          }
+        }
+      }
+    },
     "weblogin.title" : {
       "localizations" : {
         "en" : {

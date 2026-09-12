@@ -207,9 +207,19 @@ final class AuthManager: @unchecked Sendable {
     static let webAuthSentinel = "__web__"
 
     /// Called after WebLoginViewController successfully captures cookies.
-    /// Saves the sentinel key so isAuthenticated returns true, then fetches the username.
-    func loginViaWeb(forum: ForumInstance, cookies: [HTTPCookie], userAgent: String?) async throws {
+    /// linux.do supplies its username from the authenticated web page.
+    func loginViaWeb(
+        forum: ForumInstance,
+        cookies: [HTTPCookie],
+        userAgent: String?,
+        pageUsername: String?
+    ) async throws {
         let baseURL = forum.baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let usesPageUsername = ForumPolicy.isLinuxDoFamily(baseURL: baseURL)
+        let pageUsername = pageUsername?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if usesPageUsername, pageUsername?.isEmpty != false {
+            throw AuthError.missingWebUsername
+        }
 
         guard let webSessionURL = URL(string: baseURL), let baseHost = webSessionURL.host,
               cookies.contains(where: {
@@ -244,7 +254,14 @@ final class AuthManager: @unchecked Sendable {
         WebCookieStore.shared.setUserAgent(userAgent ?? previousWebSession?.userAgent, for: webSessionURL)
         KeychainHelper.deleteRSAKeyPair(for: baseURL)
 
-        if let username = await fetchAndCacheUsername(baseURL: baseURL, forum: forum) {
+        let username: String?
+        if usesPageUsername, let pageUsername {
+            cacheUsername(pageUsername, baseURL: baseURL, forum: forum)
+            username = pageUsername
+        } else {
+            username = await fetchAndCacheUsername(baseURL: baseURL, forum: forum)
+        }
+        if let username {
             await PushSubscriptionCoordinator(api: DiscourseAPI(forum: forum))
                 .rotateSubscriptionsAfterLogin(username: username)
         }
@@ -272,11 +289,15 @@ final class AuthManager: @unchecked Sendable {
         }
 
         guard let username else { return nil }
+        cacheUsername(username, baseURL: baseURL, forum: forum)
+        return username
+    }
+
+    private func cacheUsername(_ username: String, baseURL: String, forum: ForumInstance) {
         usernameCache[baseURL] = username
         var forumToUpdate = forum
         forumToUpdate.username = username
         _ = try? DatabaseManager.shared.saveForum(&forumToUpdate)
-        return username
     }
 
     // MARK: - Auth Isolation Helpers
@@ -544,6 +565,7 @@ enum AuthError: Error, LocalizedError {
     case decryptionFailed(Error)
     case nonceMismatch
     case missingWebSession
+    case missingWebUsername
     case unknownError
 
     var errorDescription: String? {
@@ -564,6 +586,8 @@ enum AuthError: Error, LocalizedError {
             return "Nonce mismatch — possible replay attack"
         case .missingWebSession:
             return "No valid web session cookie was found"
+        case .missingWebUsername:
+            return String(localized: "weblogin.username.missing")
         case .unknownError:
             return "Unknown authentication error"
         }

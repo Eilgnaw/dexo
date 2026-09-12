@@ -2,10 +2,12 @@ import UIKit
 import WebKit
 
 /// Presents a WKWebView so users can log in to a Discourse forum via their browser.
-/// Fires onSuccess once the Discourse session cookie `_t` is detected.
+/// Keeps the login page visible while the captured session is saved.
 final class WebLoginViewController: BaseViewController {
     private let targetURL: URL
-    private let onSuccess: ([HTTPCookie], String?) -> Void
+    private let saveSession: ([HTTPCookie], String?, String?) async throws -> Void
+    private let onSuccess: () -> Void
+    private var isCompletingLogin = false
 
     private var webView: WKWebView?
     private var proxyLease: AnyObject?
@@ -62,9 +64,35 @@ final class WebLoginViewController: BaseViewController {
         return (config, lease)
     }
 
-    private lazy var coordinator = Coordinator(targetURL: targetURL, onCookiesReady: { [weak self] cookies in
-        self?.handleCookiesReady(cookies)
-    })
+    private lazy var coordinator = Coordinator()
+
+    private let loginIndicator = UIActivityIndicatorView(style: .large)
+    private let loginLoadingLabel = UILabel()
+    private lazy var loginLoadingOverlay: UIView = {
+        let overlay = UIView()
+        overlay.translatesAutoresizingMaskIntoConstraints = false
+        overlay.isHidden = true
+        overlay.accessibilityViewIsModal = true
+        overlay.accessibilityIdentifier = "weblogin.loading"
+        loginLoadingLabel.text = String(localized: "weblogin.loading")
+        loginLoadingLabel.font = .preferredFont(forTextStyle: .body)
+        loginLoadingLabel.adjustsFontForContentSizeCategory = true
+        loginLoadingLabel.numberOfLines = 0
+        loginLoadingLabel.textAlignment = .center
+        let stack = UIStackView(arrangedSubviews: [loginIndicator, loginLoadingLabel])
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.axis = .vertical
+        stack.alignment = .center
+        stack.spacing = 16
+        overlay.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.centerXAnchor.constraint(equalTo: overlay.centerXAnchor),
+            stack.centerYAnchor.constraint(equalTo: overlay.centerYAnchor),
+            stack.leadingAnchor.constraint(greaterThanOrEqualTo: overlay.leadingAnchor, constant: 24),
+            stack.trailingAnchor.constraint(lessThanOrEqualTo: overlay.trailingAnchor, constant: -24),
+        ])
+        return overlay
+    }()
 
     private lazy var progressView: UIProgressView = {
         let pv = UIProgressView(progressViewStyle: .bar)
@@ -102,8 +130,13 @@ final class WebLoginViewController: BaseViewController {
         return textView
     }()
 
-    init(targetURL: URL, onSuccess: @escaping ([HTTPCookie], String?) -> Void) {
+    init(
+        targetURL: URL,
+        saveSession: @escaping ([HTTPCookie], String?, String?) async throws -> Void,
+        onSuccess: @escaping () -> Void
+    ) {
         self.targetURL = targetURL
+        self.saveSession = saveSession
         self.onSuccess = onSuccess
         super.init(nibName: nil, bundle: nil)
     }
@@ -123,7 +156,12 @@ final class WebLoginViewController: BaseViewController {
 
         view.addSubview(progressView)
         view.addSubview(diagnosticTextView)
+        view.addSubview(loginLoadingOverlay)
         NSLayoutConstraint.activate([
+            loginLoadingOverlay.topAnchor.constraint(equalTo: view.topAnchor),
+            loginLoadingOverlay.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            loginLoadingOverlay.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            loginLoadingOverlay.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             progressView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             progressView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             progressView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
@@ -143,6 +181,13 @@ final class WebLoginViewController: BaseViewController {
         super.viewWillAppear(animated)
         diagnosticTextView.backgroundColor = ThemeManager.shared.codeBackgroundColor
         diagnosticTextView.textColor = .label
+    }
+
+    override func applyThemeBackground() {
+        super.applyThemeBackground()
+        loginLoadingOverlay.backgroundColor = ThemeManager.shared.cardBackgroundColor.withAlphaComponent(0.95)
+        loginIndicator.color = ThemeManager.shared.accentColor
+        loginLoadingLabel.textColor = ThemeManager.shared.accentColor
     }
 
     private func setUpWebView() async {
@@ -198,14 +243,101 @@ final class WebLoginViewController: BaseViewController {
     // MARK: - Actions
 
     @objc private func cancelTapped() {
+        guard !isCompletingLogin else { return }
         setupTask?.cancel()
         dismiss(animated: true)
     }
 
     @objc private func doneTapped() {
-        guard let webView else { return }
-        coordinator.collectAndFire(from: webView)
+        guard let webView, !isCompletingLogin else { return }
+        // Show feedback before the first WebKit IPC or session/network operation.
+        setCompletingLogin(true)
+        Task {
+            do {
+                let username: String?
+                if ForumPolicy.isLinuxDoFamily(baseURL: targetURL.absoluteString) {
+                    guard webView.url?.scheme == "https",
+                          webView.url?.host?.lowercased() == targetURL.host?.lowercased()
+                    else { throw AuthError.missingWebUsername }
+                    username = try await webView.evaluateJavaScript(Self.currentUsernameScript) as? String
+                    guard let username, !username.isEmpty else { throw AuthError.missingWebUsername }
+                } else {
+                    username = nil
+                }
+                let allCookies: [HTTPCookie] = await withCheckedContinuation { continuation in
+                    webView.configuration.websiteDataStore.httpCookieStore.getAllCookies {
+                        continuation.resume(returning: $0)
+                    }
+                }
+                let cookies = allCookies.filter {
+                    WebCookieStore.cookieDomain($0.domain, matchesHost: targetURL.host ?? "")
+                }
+                let evaluatedUserAgent = try? await webView.evaluateJavaScript("navigator.userAgent") as? String
+                // AuthManager validates the session before replacing saved credentials.
+                try await saveSession(cookies, evaluatedUserAgent ?? webView.customUserAgent, username)
+                dismiss(animated: true, completion: onSuccess)
+            } catch {
+                setCompletingLogin(false)
+                let message = (error as? AuthError).map {
+                    if case .missingWebUsername = $0 { return String(localized: "weblogin.username.missing") }
+                    return String(localized: "login.failed.message")
+                } ?? String(localized: "login.failed.message")
+                let alert = UIAlertController(
+                    title: String(localized: "login.failed.title"),
+                    message: message,
+                    preferredStyle: .alert
+                )
+                alert.addAction(UIAlertAction(title: String(localized: "action.ok"), style: .default))
+                present(alert, animated: true)
+            }
+        }
     }
+
+    private func setCompletingLogin(_ completing: Bool) {
+        isCompletingLogin = completing
+        isModalInPresentation = completing
+        navigationController?.isModalInPresentation = completing
+        doneButton.isEnabled = !completing
+        debugButton.isEnabled = !completing
+        navigationItem.leftBarButtonItem?.isEnabled = !completing
+        loginLoadingOverlay.isHidden = !completing
+        if completing {
+            applyThemeBackground()
+            view.endEditing(true)
+            loginIndicator.startAnimating()
+            UIAccessibility.post(notification: .screenChanged, argument: loginLoadingLabel)
+        } else {
+            loginIndicator.stopAnimating()
+        }
+    }
+
+    /// Read the authenticated page identity, never the login form's identifier.
+    static let currentUsernameScript = #"""
+    (function() {
+        function username(value) {
+            return typeof value === 'string' && value.trim() ? value.trim() : null;
+        }
+        var meta = document.querySelector('meta[name="current-username"]');
+        var name = meta && username(meta.content);
+        if (name) return name;
+        try {
+            if (typeof Discourse !== 'undefined' && Discourse.User && Discourse.User.current) {
+                var user = Discourse.User.current();
+                name = user && username(user.username);
+                if (name) return name;
+            }
+        } catch (_) {}
+        try {
+            var script = document.querySelector('script#data-preloaded');
+            var element = document.querySelector('[data-preloaded]');
+            var raw = script ? script.textContent : element && element.getAttribute('data-preloaded');
+            var data = raw && JSON.parse(raw);
+            var currentUser = data && data.currentUser;
+            if (typeof currentUser === 'string') currentUser = JSON.parse(currentUser);
+            return currentUser && username(currentUser.username) || null;
+        } catch (_) { return null; }
+    })();
+    """#
 
     @objc private func debugTapped() {
         if diagnosticsRequested {
@@ -246,20 +378,6 @@ final class WebLoginViewController: BaseViewController {
         diagnosticTextView.scrollRangeToVisible(
             NSRange(location: diagnosticTextView.text.utf16.count, length: 0)
         )
-    }
-
-    private func handleCookiesReady(_ cookies: [HTTPCookie]) {
-        Task { @MainActor in
-            guard let webView else { return }
-            // Do not mutate the app-wide cookie store here. AuthManager first
-            // persists the new auth marker, then installs these cookies. This
-            // preserves the previous login if Keychain persistence fails.
-            let evaluatedUserAgent = try? await webView.evaluateJavaScript("navigator.userAgent") as? String
-            let userAgent = evaluatedUserAgent ?? webView.customUserAgent
-            dismiss(animated: true) {
-                self.onSuccess(cookies, userAgent)
-            }
-        }
     }
 
     // MARK: - Polyfills (iOS < 16.4)
@@ -339,16 +457,7 @@ final class WebLoginViewController: BaseViewController {
     // MARK: - Coordinator
 
     private final class Coordinator: NSObject, WKNavigationDelegate, WKUIDelegate {
-        private let targetHost: String
-        private let onCookiesReady: ([HTTPCookie]) -> Void
-        private let trustEvaluator: WebViewProxyTrustEvaluator?
-        private(set) var didCallback = false
-
-        init(targetURL: URL, onCookiesReady: @escaping ([HTTPCookie]) -> Void) {
-            self.targetHost = targetURL.host?.lowercased() ?? ""
-            self.onCookiesReady = onCookiesReady
-            trustEvaluator = WebViewDoHConfigurator.makeTrustEvaluator()
-        }
+        private let trustEvaluator = WebViewDoHConfigurator.makeTrustEvaluator()
 
         func webView(
             _ webView: WKWebView,
@@ -363,21 +472,6 @@ final class WebLoginViewController: BaseViewController {
                 return
             }
             completionHandler(.performDefaultHandling, nil)
-        }
-
-        /// Collect cookies and fire the callback. Only invoked from the "Done" button tap —
-        /// auto-dismiss on navigation finish / cookie change was intentionally removed so
-        /// the user decides when to hand off to the app.
-        func collectAndFire(from webView: WKWebView) {
-            guard !didCallback else { return }
-            webView.configuration.websiteDataStore.httpCookieStore.getAllCookies { [weak self] cookies in
-                guard let self, !self.didCallback else { return }
-                let relevant = cookies.filter {
-                    WebCookieStore.cookieDomain($0.domain, matchesHost: self.targetHost)
-                }
-                self.didCallback = true
-                DispatchQueue.main.async { self.onCookiesReady(relevant) }
-            }
         }
 
         func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,

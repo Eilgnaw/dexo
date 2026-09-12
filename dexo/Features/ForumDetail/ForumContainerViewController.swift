@@ -684,17 +684,21 @@ final class ForumContainerViewController: BaseViewController, AuthGating {
 
     private func presentWebLogin(then action: @escaping () -> Void) {
         guard let url = URL(string: forum.baseURL + "/login") else { return }
-        let vc = WebLoginViewController(targetURL: url) { [weak self] cookies, userAgent in
-            guard let self else { return }
-            Task {
-                do {
-                    try await self.authManager.loginViaWeb(forum: self.forum, cookies: cookies, userAgent: userAgent)
-                    self.completeSuccessfulLogin(then: action)
-                } catch {
-                    self.presentLoginFailure()
-                }
+        let vc = WebLoginViewController(
+            targetURL: url,
+            saveSession: { [weak self] cookies, userAgent, username in
+                guard let self else { throw AuthError.cancelled }
+                try await self.authManager.loginViaWeb(
+                    forum: self.forum,
+                    cookies: cookies,
+                    userAgent: userAgent,
+                    pageUsername: username
+                )
+            },
+            onSuccess: { [weak self] in
+                self?.completeSuccessfulLogin(then: action)
             }
-        }
+        )
         let nav = UINavigationController(rootViewController: vc)
         present(nav, animated: true)
     }
