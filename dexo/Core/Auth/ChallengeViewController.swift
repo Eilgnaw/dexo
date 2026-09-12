@@ -7,41 +7,21 @@ enum ChallengeFlowResult: Equatable {
 }
 
 extension UIViewController {
-    /// Presents the shared Cloudflare challenge prompt and opens the existing
-    /// linux.do challenge page when the user chooses to continue.
-    func presentChallengePrompt(
-        title: String = String(localized: "challenge.prompt.title"),
-        message: String = String(localized: "challenge.prompt.message"),
-        actionTitle: String = String(localized: "me.challenge")
-    ) {
-        let alert = UIAlertController(
-            title: title,
-            message: message,
-            preferredStyle: .alert
-        )
-        alert.addAction(UIAlertAction(title: String(localized: "action.cancel"), style: .cancel))
-        alert.addAction(UIAlertAction(title: actionTitle, style: .default) { [weak self] _ in
-            guard let self else { return }
-            ChallengeViewController.present(from: self)
-        })
-        present(alert, animated: true)
-    }
-
     /// If `error` indicates the request was intercepted by Cloudflare's
-    /// challenge, prompts the user to pass it. Returns true if the prompt was
-    /// shown, so callers can suppress generic error alerts on that path.
+    /// challenge, records it in the shared coordinator. Returns true so callers
+    /// can suppress generic error alerts without presenting a modal prompt.
     ///
     /// The challenge flow targets `linux.do/challenge`, so the prompt is
     /// suppressed for any other forum even if its response trips the CF
     /// detector — sending the user to linux.do wouldn't refresh their cookies
     /// for the forum they were actually browsing.
     @discardableResult
-    func presentChallengePromptIfNeeded(error: Error, on api: DiscourseAPI) -> Bool {
-        guard api.isLinuxDo else { return false }
+    func handleCloudflareChallengeIfNeeded(error: Error, on api: DiscourseAPI) -> Bool {
+        guard ForumPolicy.isLinuxDoFamily(baseURL: api.baseURL) else { return false }
         guard (error as? DiscourseAPIError)?.isChallengeRequired == true else {
             return false
         }
-        presentChallengePrompt()
+        CloudflareChallengeCoordinator.shared.report(.generalRequest, for: api.baseURL)
         return true
     }
 }
@@ -63,7 +43,7 @@ final class ChallengeViewController: BaseViewController, UIAdaptivePresentationC
     private var isObservingCookieChanges = false
     private var didFinishFlow = false
 
-    private func makeWebViewConfiguration() async throws -> (WKWebViewConfiguration, AnyObject?) {
+    static func makeWebViewConfiguration() async throws -> (WKWebViewConfiguration, AnyObject?) {
         let config = WKWebViewConfiguration()
         config.preferences.javaScriptCanOpenWindowsAutomatically = true
 
@@ -129,7 +109,7 @@ final class ChallengeViewController: BaseViewController, UIAdaptivePresentationC
 
     private func setUpWebView() async {
         do {
-            let (configuration, lease) = try await makeWebViewConfiguration()
+            let (configuration, lease) = try await Self.makeWebViewConfiguration()
             guard !Task.isCancelled else { return }
 
             proxyLease = lease

@@ -9,6 +9,7 @@ final class LinuxDoReadTimingSettingsViewController: BaseViewController {
     }
 
     private let settings = AppSettings.shared
+    private let baseURL: String
     private var successfulReportCount = 0
     private var failedReportCount = 0
     private lazy var reportingSwitch: UISwitch = {
@@ -30,6 +31,16 @@ final class LinuxDoReadTimingSettingsViewController: BaseViewController {
         return tableView
     }()
 
+    init(baseURL: String = "https://linux.do") {
+        self.baseURL = baseURL
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
     override func viewDidLoad() {
         super.viewDidLoad()
         title = String(localized: "settings.read_timings.linux_do.title")
@@ -45,6 +56,12 @@ final class LinuxDoReadTimingSettingsViewController: BaseViewController {
             selector: #selector(reportingSettingDidChange(_:)),
             name: .linuxDoReadTimingsSettingDidChange,
             object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(reportingSettingDidChange(_:)),
+            name: .cloudflareChallengeStateDidChange,
+            object: CloudflareChallengeCoordinator.shared
         )
     }
 
@@ -79,6 +96,9 @@ final class LinuxDoReadTimingSettingsViewController: BaseViewController {
 
     @objc private func reportingSwitchChanged(_ sender: UISwitch) {
         settings.linuxDoReadTimingsEnabled = sender.isOn
+        if !sender.isOn {
+            CloudflareChallengeCoordinator.shared.clear(.readTiming, for: baseURL)
+        }
         synchronizeReportingSwitch()
     }
 
@@ -87,7 +107,8 @@ final class LinuxDoReadTimingSettingsViewController: BaseViewController {
     }
 
     private func configureReportingDescription(_ cell: UITableViewCell) {
-        cell.detailTextLabel?.text = settings.linuxDoReadTimingsNeedsVerification
+        cell.detailTextLabel?.text = CloudflareChallengeCoordinator.shared
+            .requiresVerification(for: baseURL)
             ? String(localized: "settings.read_timings.linux_do.verification_required_subtitle")
             : String(localized: "settings.read_timings.linux_do.subtitle")
         cell.setNeedsLayout()

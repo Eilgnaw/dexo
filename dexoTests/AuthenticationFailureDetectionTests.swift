@@ -20,6 +20,34 @@ final class AuthenticationFailureDetectionTests: XCTestCase {
         XCTAssertTrue(isCloudflareChallengeResponse(nil, response: response))
     }
 
+    @MainActor
+    func testCentralResponseBoundaryRecordsLinuxDoChallengeReason() throws {
+        let coordinator = CloudflareChallengeCoordinator.shared
+        let originalReasons = coordinator.reasons(for: "https://linux.do")
+        defer {
+            coordinator.clearAll(for: "https://linux.do")
+            coordinator.report(originalReasons, for: "https://linux.do")
+        }
+        coordinator.clearAll(for: "https://linux.do")
+        let api = DiscourseAPI(baseURL: "https://linux.do")
+        let url = try XCTUnwrap(URL(string: "https://linux.do/latest.json"))
+        let response = try XCTUnwrap(HTTPURLResponse(
+            url: url,
+            statusCode: 403,
+            httpVersion: nil,
+            headerFields: ["cf-mitigated": "challenge"]
+        ))
+
+        let error = api.cloudflareChallengeErrorIfNeeded(
+            data: nil,
+            response: response,
+            request: URLRequest(url: url)
+        )
+
+        XCTAssertTrue(error?.isChallengeRequired == true)
+        XCTAssertEqual(coordinator.reasons(for: "https://linux.do"), .generalRequest)
+    }
+
     func testHTMLChallengeFallbackAndOrdinaryHTML() {
         let challenge = Data("<!doctype html><html><title>Just a moment...</title></html>".utf8)
         XCTAssertTrue(isCloudflareChallengeResponse(challenge))

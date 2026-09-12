@@ -5,6 +5,14 @@ final class AddForumViewController: ObservableViewController {
     var onForumAdded: (() -> Void)?
 
     private let viewModel = AddForumViewModel()
+    private var challengeBaseURL: String?
+    private lazy var challengeIndicatorHost = CloudflareChallengeIndicatorHost(
+        baseURLProvider: { [weak self] in
+            self?.challengeBaseURL
+                ?? CloudflareChallengeCoordinator.shared.primaryPendingBaseURL
+        },
+        presenterProvider: { [weak self] in self }
+    )
 
     private let urlTextField: UITextField = {
         let tf = UITextField()
@@ -57,6 +65,7 @@ final class AddForumViewController: ObservableViewController {
         view.addSubview(addButton)
         view.addSubview(activityIndicator)
         view.addSubview(errorLabel)
+        challengeIndicatorHost.install(in: view)
 
         NSLayoutConstraint.activate([
             urlTextField.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 24),
@@ -79,6 +88,26 @@ final class AddForumViewController: ObservableViewController {
 
         addButton.addTarget(self, action: #selector(addTapped), for: .touchUpInside)
         urlTextField.delegate = self
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        challengeIndicatorHost.refresh(animated: true)
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        let safeBounds = view.bounds.inset(by: view.safeAreaInsets)
+        let bottom = safeBounds.maxY - 72
+        let availableBounds = bottom - safeBounds.minY >= 96
+            ? CGRect(
+                x: safeBounds.minX,
+                y: safeBounds.minY,
+                width: safeBounds.width,
+                height: bottom - safeBounds.minY
+            )
+            : safeBounds
+        challengeIndicatorHost.updatePlacement(in: availableBounds)
     }
 
     override func updateUI() {
@@ -105,12 +134,10 @@ final class AddForumViewController: ObservableViewController {
                 onForumAdded?()
                 dismiss(animated: true)
 
-            case .challengeRequired:
-                presentChallengePrompt(
-                    title: String(localized: "add_forum.challenge.title"),
-                    message: String(localized: "add_forum.challenge.message"),
-                    actionTitle: String(localized: "add_forum.challenge.action")
-                )
+            case .challengeRequired(let baseURL):
+                challengeBaseURL = baseURL
+                CloudflareChallengeCoordinator.shared.report(.generalRequest, for: baseURL)
+                challengeIndicatorHost.refresh(animated: true)
 
             case .failed:
                 break

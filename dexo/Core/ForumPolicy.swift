@@ -53,7 +53,7 @@ enum ForumPolicy {
         guard AppSettings.shared.linuxDoReadTimingsEnabled,
               authKind == .webSession
         else { return .disabled }
-        return AppSettings.shared.linuxDoReadTimingsNeedsVerification
+        return CloudflareChallengeCoordinator.shared.requiresVerification(for: baseURL)
             ? .verificationRequired
             : .enabled
     }

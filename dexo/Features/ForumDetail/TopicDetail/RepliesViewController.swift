@@ -405,7 +405,7 @@ extension RepliesViewController: PostCellDelegate {
                 present(navigation, animated: true)
             } catch {
                 activityIndicator.stopAnimating()
-                if !presentChallengePromptIfNeeded(error: error, on: api) {
+                if !handleCloudflareChallengeIfNeeded(error: error, on: api) {
                     let alert = UIAlertController(
                         title: String(localized: "edit.save.failed"),
                         message: error.localizedDescription,
@@ -468,7 +468,7 @@ extension RepliesViewController: PostCellDelegate {
                 }
             } catch {
                 debugLog("didTapReaction 发生错误: \(error)")
-                presentChallengePromptIfNeeded(error: error, on: api)
+                handleCloudflareChallengeIfNeeded(error: error, on: api)
             }
         }
     }
@@ -486,7 +486,7 @@ extension RepliesViewController: PostCellDelegate {
                     playReactionDestinationFeedback(forPostId: post.id)
                 }
             } catch {
-                presentChallengePromptIfNeeded(error: error, on: api)
+                handleCloudflareChallengeIfNeeded(error: error, on: api)
             }
         }
     }
@@ -571,7 +571,7 @@ extension RepliesViewController: PostCellDelegate {
                     }
                     self.refreshBoostUI()
                 } catch {
-                    if self.presentChallengePromptIfNeeded(error: error, on: self.api) {
+                    if self.handleCloudflareChallengeIfNeeded(error: error, on: self.api) {
                         return
                     }
                     let failureAlert = UIAlertController(
@@ -649,7 +649,7 @@ extension RepliesViewController: PostCellDelegate {
                     self.expandedBoostPostIds.insert(post.id)
                     self.refreshBoostUI()
                 } catch {
-                    if self.presentChallengePromptIfNeeded(error: error, on: self.api) {
+                    if self.handleCloudflareChallengeIfNeeded(error: error, on: self.api) {
                         return
                     }
                     let failureAlert = UIAlertController(

@@ -208,16 +208,17 @@ final class MeCenterTests: XCTestCase {
     func testReadTimingSettingsSwitchFollowsPersistedSettingChanges() throws {
         let settings = AppSettings.shared
         let originalValue = settings.linuxDoReadTimingsEnabled
-        let originalNeedsVerification = settings.linuxDoReadTimingsNeedsVerification
+        let challengeCoordinator = CloudflareChallengeCoordinator.shared
+        let originalReasons = challengeCoordinator.reasons(for: "https://linux.do")
         defer {
-            settings.linuxDoReadTimingsEnabled = true
-            settings.linuxDoReadTimingsNeedsVerification = originalNeedsVerification
+            challengeCoordinator.clearAll(for: "https://linux.do")
+            challengeCoordinator.report(originalReasons, for: "https://linux.do")
             settings.linuxDoReadTimingsEnabled = originalValue
         }
 
+        challengeCoordinator.clearAll(for: "https://linux.do")
         settings.linuxDoReadTimingsEnabled = true
-        settings.linuxDoReadTimingsNeedsVerification = false
-        let controller = LinuxDoReadTimingSettingsViewController()
+        let controller = LinuxDoReadTimingSettingsViewController(baseURL: "https://linux.do")
         controller.loadViewIfNeeded()
         controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 844)
         controller.view.layoutIfNeeded()
@@ -234,7 +235,7 @@ final class MeCenterTests: XCTestCase {
         settings.linuxDoReadTimingsEnabled = true
         XCTAssertTrue(reportingSwitch.isOn)
 
-        settings.linuxDoReadTimingsNeedsVerification = true
+        challengeCoordinator.report(.generalRequest, for: "https://linux.do")
         XCTAssertTrue(reportingSwitch.isOn)
     }
 

@@ -419,6 +419,7 @@ final class AuthManager: @unchecked Sendable {
     }
 
     private func postAuthChange(for baseURL: String) {
+        CloudflareChallengeCoordinator.shared.clearAll(for: baseURL)
         NotificationCenter.default.post(
             name: .discourseAuthDidChange,
             object: nil,

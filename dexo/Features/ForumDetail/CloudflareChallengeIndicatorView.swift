@@ -1,17 +1,18 @@
 import UIKit
 
-/// A non-modal, draggable affordance shown while linux.do timing uploads are
-/// paused for Cloudflare verification. The system menu keeps both choices
+/// A non-modal, draggable affordance shown while linux.do work is paused for
+/// Cloudflare verification. The system menu keeps every relevant choice
 /// anchored to the button without interrupting the current reading context.
-final class ReadTimingChallengeIndicatorView: UIButton {
+final class CloudflareChallengeIndicatorView: UIButton {
     enum Action: Equatable {
         case openChallenge
         case disableReporting
+        case ignoreGeneralRequest
     }
 
     private static let buttonSize: CGFloat = 48
     private static let edgeInset: CGFloat = 16
-    private static let breathingAnimationKey = "readTimingChallenge.breathing"
+    private static let breathingAnimationKey = "cloudflareChallenge.breathing"
 
     private let onAction: (Action) -> Void
     private let glowLayer = CAShapeLayer()
@@ -20,6 +21,7 @@ final class ReadTimingChallengeIndicatorView: UIButton {
     private var dragAnchor: CGPoint = .zero
     private var hasBeenPlaced = false
     private var hasAnimatedAppearance = false
+    private(set) var reasons: CloudflareChallengeReason = []
 
     init(onAction: @escaping (Action) -> Void) {
         self.onAction = onAction
@@ -70,17 +72,15 @@ final class ReadTimingChallengeIndicatorView: UIButton {
         layer.shadowOpacity = 0.18
         layer.shadowOffset = CGSize(width: 0, height: 3)
         layer.shadowRadius = 7
-        glowLayer.name = "readTimingChallenge.glow"
+        glowLayer.name = "cloudflareChallenge.glow"
         glowLayer.fillRule = .evenOdd
         glowLayer.shadowOpacity = 0.6
         glowLayer.shadowOffset = .zero
         glowLayer.shadowRadius = 5
         glowLayer.opacity = 0.12
         layer.insertSublayer(glowLayer, at: 0)
-        accessibilityIdentifier = "read_timings.challenge.indicator"
-        accessibilityLabel = String(localized: "settings.read_timings.challenge.title")
-        accessibilityHint = String(localized: "settings.read_timings.challenge.indicator.hint")
-        accessibilityValue = String(localized: "settings.read_timings.status.verification_required")
+        accessibilityIdentifier = "cloudflare.challenge.indicator"
+        accessibilityHint = String(localized: "cloudflare.challenge.indicator.hint")
         isPointerInteractionEnabled = true
         showsMenuAsPrimaryAction = true
 
@@ -94,24 +94,7 @@ final class ReadTimingChallengeIndicatorView: UIButton {
         buttonConfiguration.cornerStyle = .capsule
         configuration = buttonConfiguration
 
-        let openChallenge = UIAction(
-            title: String(localized: "settings.read_timings.challenge.open"),
-            image: UIImage(systemName: "shield.lefthalf.filled")
-        ) { [weak self] _ in
-            self?.perform(.openChallenge)
-        }
-        let disableReporting = UIAction(
-            title: String(localized: "settings.read_timings.challenge.disable"),
-            image: UIImage(systemName: "clock.badge.xmark"),
-            attributes: .destructive
-        ) { [weak self] _ in
-            self?.perform(.disableReporting)
-        }
-        menu = UIMenu(
-            title: String(localized: "settings.read_timings.challenge.title"),
-            options: .displayInline,
-            children: [openChallenge, disableReporting]
-        )
+        configure(reasons: [])
 
         let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
         addGestureRecognizer(pan)
@@ -129,6 +112,44 @@ final class ReadTimingChallengeIndicatorView: UIButton {
         )
         configureTheme()
         isHidden = true
+    }
+
+    func configure(reasons: CloudflareChallengeReason) {
+        guard reasons != self.reasons || menu == nil else { return }
+        self.reasons = reasons
+        let hasGeneralRequest = reasons.contains(.generalRequest)
+        let title = hasGeneralRequest
+            ? String(localized: "cloudflare.challenge.title")
+            : String(localized: "settings.read_timings.challenge.title")
+        accessibilityLabel = title
+        accessibilityValue = String(localized: "settings.read_timings.status.verification_required")
+
+        var actions: [UIMenuElement] = [
+            UIAction(
+                title: String(localized: "cloudflare.challenge.open"),
+                image: UIImage(systemName: "shield.lefthalf.filled")
+            ) { [weak self] _ in
+                self?.perform(.openChallenge)
+            },
+        ]
+        if reasons.contains(.readTiming) {
+            actions.append(UIAction(
+                title: String(localized: "cloudflare.challenge.disable_read_timing"),
+                image: UIImage(systemName: "clock.badge.xmark"),
+                attributes: .destructive
+            ) { [weak self] _ in
+                self?.perform(.disableReporting)
+            })
+        }
+        if hasGeneralRequest {
+            actions.append(UIAction(
+                title: String(localized: "cloudflare.challenge.ignore"),
+                image: UIImage(systemName: "eye.slash")
+            ) { [weak self] _ in
+                self?.perform(.ignoreGeneralRequest)
+            })
+        }
+        menu = UIMenu(title: title, options: .displayInline, children: actions)
     }
 
     func configureTheme() {
@@ -283,6 +304,89 @@ final class ReadTimingChallengeIndicatorView: UIButton {
             }
         default:
             break
+        }
+    }
+}
+
+/// Shared behavior for every screen capable of hosting the challenge shield.
+/// View controllers only supply their active base URL and movement bounds.
+final class CloudflareChallengeIndicatorHost {
+    private let coordinator: CloudflareChallengeCoordinator
+    private let baseURLProvider: () -> String?
+    private let presenterProvider: () -> UIViewController?
+    private var stateObserver: (any NSObjectProtocol)?
+
+    private(set) lazy var indicator = CloudflareChallengeIndicatorView {
+        [weak self] action in
+        self?.handle(action)
+    }
+
+    init(
+        coordinator: CloudflareChallengeCoordinator = .shared,
+        baseURLProvider: @escaping () -> String?,
+        presenterProvider: @escaping () -> UIViewController?
+    ) {
+        self.coordinator = coordinator
+        self.baseURLProvider = baseURLProvider
+        self.presenterProvider = presenterProvider
+        stateObserver = NotificationCenter.default.addObserver(
+            forName: .cloudflareChallengeStateDidChange,
+            object: coordinator,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.refresh(animated: true)
+            }
+        }
+    }
+
+    deinit {
+        if let stateObserver {
+            NotificationCenter.default.removeObserver(stateObserver)
+        }
+    }
+
+    func install(in view: UIView) {
+        guard indicator.superview !== view else { return }
+        indicator.removeFromSuperview()
+        view.addSubview(indicator)
+        refresh(animated: false)
+    }
+
+    func refresh(animated: Bool) {
+        let reasons = baseURLProvider().map { coordinator.reasons(for: $0) } ?? []
+        indicator.configure(reasons: reasons)
+        indicator.configureTheme()
+        indicator.setPresented(!reasons.isEmpty, animated: animated)
+    }
+
+    func updatePlacement(in availableBounds: CGRect) {
+        indicator.updatePlacement(in: availableBounds)
+    }
+
+    private func handle(_ action: CloudflareChallengeIndicatorView.Action) {
+        guard let baseURL = baseURLProvider() else { return }
+        switch action {
+        case .openChallenge:
+            guard coordinator.requiresVerification(for: baseURL) else { return }
+            DispatchQueue.main.async { [weak self] in
+                guard let self,
+                      let presenter = self.presenterProvider(),
+                      presenter.presentedViewController == nil
+                else { return }
+                let coordinator = self.coordinator
+                ChallengeViewController.present(from: presenter) { result in
+                    guard result == .completed else { return }
+                    coordinator.clearAll(for: baseURL)
+                }
+            }
+
+        case .disableReporting:
+            AppSettings.shared.linuxDoReadTimingsEnabled = false
+            coordinator.clear(.readTiming, for: baseURL)
+
+        case .ignoreGeneralRequest:
+            coordinator.clear(.generalRequest, for: baseURL)
         }
     }
 }

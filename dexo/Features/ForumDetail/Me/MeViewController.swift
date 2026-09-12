@@ -131,6 +131,12 @@ final class MeViewController: ObservableViewController {
             name: .linuxDoReadTimingsSettingDidChange,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(readTimingsSettingDidChange),
+            name: .cloudflareChallengeStateDidChange,
+            object: CloudflareChallengeCoordinator.shared
+        )
         applySurfaceTheme()
         loadData()
     }
@@ -431,9 +437,13 @@ final class MeViewController: ObservableViewController {
             guard let username else { return }
             destination = PushNotificationSettingsViewController(api: api, username: username)
         case .readTimings:
-            destination = LinuxDoReadTimingSettingsViewController()
+            destination = LinuxDoReadTimingSettingsViewController(baseURL: api.baseURL)
         case .challenge:
-            ChallengeViewController.present(from: self)
+            let baseURL = api.baseURL
+            ChallengeViewController.present(from: self) { result in
+                guard result == .completed else { return }
+                CloudflareChallengeCoordinator.shared.clearAll(for: baseURL)
+            }
             return
         case .login, .logout:
             return

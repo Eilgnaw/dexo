@@ -1,4 +1,5 @@
 import UIKit
+import WebKit
 import XCTest
 @testable import dexo
 
@@ -7,14 +8,17 @@ final class ReadTimingSettingsTests: XCTestCase {
     func testTogglingReportingKeepsTheActiveSwitchInItsCell() throws {
         let settings = AppSettings.shared
         let wasEnabled = settings.linuxDoReadTimingsEnabled
-        let neededVerification = settings.linuxDoReadTimingsNeedsVerification
+        let challengeCoordinator = CloudflareChallengeCoordinator.shared
+        let originalReasons = challengeCoordinator.reasons(for: "https://linux.do")
         defer {
+            challengeCoordinator.clearAll(for: "https://linux.do")
+            challengeCoordinator.report(originalReasons, for: "https://linux.do")
             settings.linuxDoReadTimingsEnabled = wasEnabled
-            settings.linuxDoReadTimingsNeedsVerification = neededVerification
         }
+        challengeCoordinator.clearAll(for: "https://linux.do")
         settings.linuxDoReadTimingsEnabled = false
 
-        let controller = LinuxDoReadTimingSettingsViewController()
+        let controller = LinuxDoReadTimingSettingsViewController(baseURL: "https://linux.do")
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
         window.rootViewController = controller
         window.makeKeyAndVisible()
@@ -42,7 +46,7 @@ final class ReadTimingSettingsTests: XCTestCase {
         // A background upload can require verification while this page is
         // visible. That notification must update the subtitle in place too.
         settings.linuxDoReadTimingsEnabled = true
-        settings.linuxDoReadTimingsNeedsVerification = true
+        challengeCoordinator.report(.readTiming, for: "https://linux.do")
         controller.view.layoutIfNeeded()
         XCTAssertTrue(toggle.isOn)
         XCTAssertTrue(table.cellForRow(at: indexPath) === originalCell)
@@ -54,7 +58,7 @@ final class ReadTimingSettingsTests: XCTestCase {
         toggle.setOn(false, animated: false)
         toggle.sendActions(for: .valueChanged)
         controller.view.layoutIfNeeded()
-        XCTAssertFalse(settings.linuxDoReadTimingsNeedsVerification)
+        XCTAssertFalse(challengeCoordinator.requiresVerification(for: "https://linux.do"))
         XCTAssertFalse(settings.linuxDoReadTimingsEnabled)
         XCTAssertTrue(table.cellForRow(at: indexPath) === originalCell)
         XCTAssertTrue(toggle.isDescendant(of: originalCell))
@@ -66,9 +70,9 @@ final class ReadTimingSettingsTests: XCTestCase {
 }
 
 @MainActor
-final class ReadTimingChallengeIndicatorTests: XCTestCase {
+final class CloudflareChallengeIndicatorTests: XCTestCase {
     func testDefaultPlacementClampsAndSnapsToEitherSafeEdge() {
-        let indicator = ReadTimingChallengeIndicatorView { _ in }
+        let indicator = CloudflareChallengeIndicatorView { _ in }
         let availableBounds = CGRect(x: 0, y: 100, width: 390, height: 560)
         indicator.updatePlacement(in: availableBounds)
 
@@ -86,17 +90,19 @@ final class ReadTimingChallengeIndicatorTests: XCTestCase {
         XCTAssertLessThan(right.y, availableBounds.maxY)
     }
 
-    func testMenuExposesBothLocalizedActionsAndRoutesSelections() throws {
-        var selections: [ReadTimingChallengeIndicatorView.Action] = []
-        let indicator = ReadTimingChallengeIndicatorView { selections.append($0) }
+    func testMenuReflectsMergedReasonsAndRoutesSelections() throws {
+        var selections: [CloudflareChallengeIndicatorView.Action] = []
+        let indicator = CloudflareChallengeIndicatorView { selections.append($0) }
+        indicator.configure(reasons: [.readTiming, .generalRequest])
         let menu = try XCTUnwrap(indicator.menu)
 
-        XCTAssertEqual(menu.title, String(localized: "settings.read_timings.challenge.title"))
+        XCTAssertEqual(menu.title, String(localized: "cloudflare.challenge.title"))
         XCTAssertEqual(
             menu.children.map(\.title),
             [
-                String(localized: "settings.read_timings.challenge.open"),
-                String(localized: "settings.read_timings.challenge.disable"),
+                String(localized: "cloudflare.challenge.open"),
+                String(localized: "cloudflare.challenge.disable_read_timing"),
+                String(localized: "cloudflare.challenge.ignore"),
             ]
         )
         XCTAssertEqual(
@@ -106,17 +112,30 @@ final class ReadTimingChallengeIndicatorTests: XCTestCase {
 
         indicator.perform(.openChallenge)
         indicator.perform(.disableReporting)
-        XCTAssertEqual(selections, [.openChallenge, .disableReporting])
+        indicator.perform(.ignoreGeneralRequest)
+        XCTAssertEqual(
+            selections,
+            [.openChallenge, .disableReporting, .ignoreGeneralRequest]
+        )
+
+        indicator.configure(reasons: .generalRequest)
+        XCTAssertEqual(
+            indicator.menu?.children.map(\.title),
+            [
+                String(localized: "cloudflare.challenge.open"),
+                String(localized: "cloudflare.challenge.ignore"),
+            ]
+        )
     }
 
     func testBreathingSurvivesPresentationUpdatesAndRestartsAfterVisibilityChanges() throws {
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
-        let indicator = ReadTimingChallengeIndicatorView { _ in }
+        let indicator = CloudflareChallengeIndicatorView { _ in }
         window.addSubview(indicator)
         indicator.updatePlacement(in: window.bounds)
         indicator.layoutIfNeeded()
         NotificationCenter.default.post(name: UIApplication.didBecomeActiveNotification, object: nil)
-        let glow = try XCTUnwrap(indicator.layer.sublayers?.first { $0.name == "readTimingChallenge.glow" })
+        let glow = try XCTUnwrap(indicator.layer.sublayers?.first { $0.name == "cloudflareChallenge.glow" })
 
         indicator.setPresented(true, animated: false)
         XCTAssertFalse(indicator.isHidden)
@@ -148,6 +167,38 @@ final class ReadTimingChallengeIndicatorTests: XCTestCase {
         window.addSubview(indicator)
         XCTAssertEqual(!(glow.animationKeys()?.isEmpty ?? true), !UIAccessibility.isReduceMotionEnabled)
     }
+
+    func testSharedHostClearsOnlyTheReasonSelectedByTheUser() throws {
+        let suiteName = "dexo-cloudflare-host-\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let coordinator = CloudflareChallengeCoordinator(
+            defaults: defaults,
+            migrateLegacyState: false
+        )
+        coordinator.report([.readTiming, .generalRequest], for: "https://linux.do")
+        let settings = AppSettings.shared
+        let wasEnabled = settings.linuxDoReadTimingsEnabled
+        defer { settings.linuxDoReadTimingsEnabled = wasEnabled }
+        settings.linuxDoReadTimingsEnabled = true
+
+        let presenter = UIViewController()
+        let host = CloudflareChallengeIndicatorHost(
+            coordinator: coordinator,
+            baseURLProvider: { "https://linux.do" },
+            presenterProvider: { presenter }
+        )
+        host.install(in: presenter.view)
+
+        host.indicator.perform(.ignoreGeneralRequest)
+        XCTAssertEqual(coordinator.reasons(for: "https://linux.do"), .readTiming)
+        XCTAssertFalse(host.indicator.isHidden)
+
+        host.indicator.perform(.disableReporting)
+        XCTAssertTrue(coordinator.reasons(for: "https://linux.do").isEmpty)
+        XCTAssertFalse(settings.linuxDoReadTimingsEnabled)
+        XCTAssertTrue(host.indicator.isHidden)
+    }
 }
 
 @MainActor
@@ -171,5 +222,41 @@ final class ChallengeFlowTests: XCTestCase {
         controller.presentationControllerDidDismiss(presentationController)
         await fulfillment(of: [finished], timeout: 1)
         XCTAssertEqual(results, [.cancelled])
+    }
+
+    func testChallengeConfigurationUsesDefaultStoreAndClearsProxyWhenDoHIsOff() async throws {
+        guard #available(iOS 17.0, *) else { return }
+        let settings = AppSettings.shared
+        let wasEnabled = settings.dohEnabled
+        defer { settings.dohEnabled = wasEnabled }
+        settings.dohEnabled = false
+
+        let (configuration, lease) = try await ChallengeViewController.makeWebViewConfiguration()
+
+        XCTAssertTrue(configuration.websiteDataStore === WKWebsiteDataStore.default())
+        XCTAssertTrue(configuration.websiteDataStore.proxyConfigurations.isEmpty)
+        XCTAssertNil(lease)
+    }
+
+    func testChallengeConfigurationDoesNotFallBackWhenEnabledDoHIsInvalid() async {
+        guard #available(iOS 17.0, *) else { return }
+        let settings = AppSettings.shared
+        let wasEnabled = settings.dohEnabled
+        let previousServers = settings.dohServers
+        let previousDefaultID = settings.defaultDoHServerID
+        defer {
+            settings.dohServers = previousServers
+            settings.defaultDoHServerID = previousDefaultID
+            settings.dohEnabled = wasEnabled
+        }
+        settings.dohServers = []
+        settings.dohEnabled = true
+
+        do {
+            _ = try await ChallengeViewController.makeWebViewConfiguration()
+            XCTFail("An invalid enabled DoH configuration must not silently use direct networking")
+        } catch {
+            XCTAssertTrue(WKWebsiteDataStore.default().proxyConfigurations.isEmpty)
+        }
     }
 }

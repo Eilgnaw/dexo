@@ -295,15 +295,9 @@ final class TopicTimingPolicyTests: XCTestCase {
         let settings = AppSettings(testingDefaults: defaults)
 
         XCTAssertTrue(settings.linuxDoReadTimingsEnabled)
-        XCTAssertFalse(settings.linuxDoReadTimingsNeedsVerification)
-        settings.linuxDoReadTimingsNeedsVerification = true
-        XCTAssertTrue(
-            AppSettings(testingDefaults: defaults).linuxDoReadTimingsNeedsVerification
-        )
         settings.linuxDoReadTimingsEnabled = false
         let disabledSettings = AppSettings(testingDefaults: defaults)
         XCTAssertFalse(disabledSettings.linuxDoReadTimingsEnabled)
-        XCTAssertFalse(disabledSettings.linuxDoReadTimingsNeedsVerification)
         settings.linuxDoReadTimingsEnabled = true
         XCTAssertTrue(AppSettings(testingDefaults: defaults).linuxDoReadTimingsEnabled)
     }
@@ -311,17 +305,18 @@ final class TopicTimingPolicyTests: XCTestCase {
     func testLinuxDoPolicyRequiresWebSessionAndCoversSubdomains() {
         let settings = AppSettings.shared
         let original = settings.linuxDoReadTimingsEnabled
-        let originalNeedsVerification = settings.linuxDoReadTimingsNeedsVerification
+        let challengeCoordinator = CloudflareChallengeCoordinator.shared
+        let originalReasons = challengeCoordinator.reasons(for: "https://linux.do")
         defer {
-            settings.linuxDoReadTimingsEnabled = true
-            settings.linuxDoReadTimingsNeedsVerification = originalNeedsVerification
+            challengeCoordinator.clearAll(for: "https://linux.do")
+            challengeCoordinator.report(originalReasons, for: "https://linux.do")
             settings.linuxDoReadTimingsEnabled = original
         }
 
+        challengeCoordinator.clearAll(for: "https://linux.do")
         settings.linuxDoReadTimingsEnabled = false
         XCTAssertFalse(ForumPolicy.tracksReadTimings(baseURL: "https://linux.do", authKind: .webSession))
         settings.linuxDoReadTimingsEnabled = true
-        settings.linuxDoReadTimingsNeedsVerification = false
         XCTAssertTrue(ForumPolicy.tracksReadTimings(baseURL: "https://linux.do", authKind: .webSession))
         XCTAssertTrue(ForumPolicy.tracksReadTimings(baseURL: "https://meta.linux.do", authKind: .webSession))
         XCTAssertFalse(ForumPolicy.tracksReadTimings(baseURL: "https://linux.do", authKind: .userAPIKey))
@@ -330,7 +325,7 @@ final class TopicTimingPolicyTests: XCTestCase {
         XCTAssertTrue(ForumPolicy.tracksReadTimings(baseURL: "https://example.com", authKind: .webSession))
         XCTAssertFalse(ForumPolicy.tracksReadTimings(baseURL: "https://example.com", authKind: .anonymous))
 
-        settings.linuxDoReadTimingsNeedsVerification = true
+        challengeCoordinator.report(.generalRequest, for: "https://linux.do")
         XCTAssertEqual(
             ForumPolicy.readTimingReportingStatus(
                 baseURL: "https://linux.do",
@@ -344,23 +339,18 @@ final class TopicTimingPolicyTests: XCTestCase {
     func testAuthenticationChangeClearsPersistedVerificationRequirement() {
         let settings = AppSettings.shared
         let originalEnabled = settings.linuxDoReadTimingsEnabled
-        let originalNeedsVerification = settings.linuxDoReadTimingsNeedsVerification
+        let challengeCoordinator = CloudflareChallengeCoordinator.shared
+        let originalReasons = challengeCoordinator.reasons(for: "https://linux.do")
         defer {
-            settings.linuxDoReadTimingsEnabled = true
-            settings.linuxDoReadTimingsNeedsVerification = originalNeedsVerification
+            challengeCoordinator.clearAll(for: "https://linux.do")
+            challengeCoordinator.report(originalReasons, for: "https://linux.do")
             settings.linuxDoReadTimingsEnabled = originalEnabled
         }
 
         settings.linuxDoReadTimingsEnabled = true
-        settings.linuxDoReadTimingsNeedsVerification = true
-        let api = DiscourseAPI(baseURL: "https://linux.do")
-        NotificationCenter.default.post(
-            name: .discourseAuthDidChange,
-            object: nil,
-            userInfo: ["baseURL": "https://linux.do"]
-        )
-        withExtendedLifetime(api) {}
-        XCTAssertFalse(settings.linuxDoReadTimingsNeedsVerification)
+        challengeCoordinator.report(.readTiming, for: "https://linux.do")
+        AuthManager.shared.clearLocalAuthentication(for: "https://linux.do")
+        XCTAssertFalse(challengeCoordinator.requiresVerification(for: "https://linux.do"))
     }
 
     func testCloudflareChallengeWinsOverSuccessStatus() {

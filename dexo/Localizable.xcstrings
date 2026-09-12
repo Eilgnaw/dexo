@@ -210,6 +210,7 @@
       }
     },
     "add_forum.challenge.action" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -226,6 +227,7 @@
       }
     },
     "add_forum.challenge.message" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -242,6 +244,7 @@
       }
     },
     "add_forum.challenge.title" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -969,6 +972,7 @@
       }
     },
     "challenge.prompt.message" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -985,6 +989,7 @@
       }
     },
     "challenge.prompt.title" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -1012,6 +1017,86 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "过盾"
+          }
+        }
+      }
+    },
+    "cloudflare.challenge.disable_read_timing" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Turn Off Read-time Reporting"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "关闭阅读时间上报"
+          }
+        }
+      }
+    },
+    "cloudflare.challenge.ignore" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ignore This Prompt"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "忽略此次提示"
+          }
+        }
+      }
+    },
+    "cloudflare.challenge.indicator.hint" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Opens Cloudflare verification options"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "打开 Cloudflare 验证处理选项"
+          }
+        }
+      }
+    },
+    "cloudflare.challenge.open" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open Verification"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "打开过盾界面"
+          }
+        }
+      }
+    },
+    "cloudflare.challenge.title" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cloudflare verification pending"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cloudflare 验证待处理"
           }
         }
       }
@@ -5922,6 +6007,7 @@
       }
     },
     "settings.read_timings.challenge.disable" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -5938,6 +6024,7 @@
       }
     },
     "settings.read_timings.challenge.indicator.hint" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -5954,6 +6041,7 @@
       }
     },
     "settings.read_timings.challenge.open" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -8451,22 +8539,6 @@
         }
       }
     },
-    "weblogin.username.missing" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Could not read your username. Finish logging in and wait for the forum page to load, then tap Done again."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "暂时无法读取用户名。请完成网页登录，等待论坛页面加载后，再点击“完成”。"
-          }
-        }
-      }
-    },
     "weblogin.title" : {
       "localizations" : {
         "en" : {
@@ -8479,6 +8551,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "登录"
+          }
+        }
+      }
+    },
+    "weblogin.username.missing" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Could not read your username. Finish logging in and wait for the forum page to load, then tap Done again."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "暂时无法读取用户名。请完成网页登录，等待论坛页面加载后，再点击“完成”。"
           }
         }
       }

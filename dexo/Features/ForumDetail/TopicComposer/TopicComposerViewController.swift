@@ -522,7 +522,7 @@ final class TopicComposerViewController: ObservableViewController {
                 setFormEnabled(true)
                 sendButton.isEnabled = viewModel.canSubmit
                 let underlyingError = (error as? TopicEditSaveError)?.underlyingError ?? error
-                if presentChallengePromptIfNeeded(error: underlyingError, on: api) {
+                if handleCloudflareChallengeIfNeeded(error: underlyingError, on: api) {
                     return
                 }
                 let partialSave = (error as? TopicEditSaveError)?.bodyWasSaved == true

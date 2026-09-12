@@ -223,6 +223,7 @@ final class DiscourseAPI {
     private var categoryCacheGeneration = 0
     private nonisolated(unsafe) var categoryAuthChangeObserver: (any NSObjectProtocol)?
     private nonisolated(unsafe) var topicTimingSettingsObserver: (any NSObjectProtocol)?
+    private nonisolated(unsafe) var cloudflareChallengeObserver: (any NSObjectProtocol)?
     private let categoryPageLoader: CategoryPageLoader?
     private let categoryChildrenLoader: CategoryChildrenLoader?
 
@@ -253,10 +254,6 @@ final class DiscourseAPI {
                 consecutiveFailureCount: failureCount,
                 trippedBreaker: trippedBreaker
             )
-        },
-        onCloudflareChallenge: { [weak self] in
-            guard let self, ForumPolicy.isLinuxDoFamily(baseURL: self.baseURL) else { return }
-            AppSettings.shared.linuxDoReadTimingsNeedsVerification = true
         },
         onAuthenticationFailure: { [weak self] in
             guard let self else { return }
@@ -307,6 +304,9 @@ final class DiscourseAPI {
         }
         if let topicTimingSettingsObserver {
             NotificationCenter.default.removeObserver(topicTimingSettingsObserver)
+        }
+        if let cloudflareChallengeObserver {
+            NotificationCenter.default.removeObserver(cloudflareChallengeObserver)
         }
     }
 
@@ -421,9 +421,6 @@ final class DiscourseAPI {
             }
             MainActor.assumeIsolated {
                 guard let self else { return }
-                if ForumPolicy.isLinuxDoFamily(baseURL: self.baseURL) {
-                    AppSettings.shared.linuxDoReadTimingsNeedsVerification = false
-                }
                 self.invalidateCategoryCache()
                 self.topicTimingCoordinator.resetForEligibilityChange(
                     isEligible: ForumPolicy.tracksReadTimings(baseURL: self.baseURL)
@@ -439,6 +436,21 @@ final class DiscourseAPI {
         ) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self else { return }
+                self.topicTimingCoordinator.resetForEligibilityChange(
+                    isEligible: ForumPolicy.tracksReadTimings(baseURL: self.baseURL)
+                )
+            }
+        }
+        cloudflareChallengeObserver = NotificationCenter.default.addObserver(
+            forName: .cloudflareChallengeStateDidChange,
+            object: CloudflareChallengeCoordinator.shared,
+            queue: .main
+        ) { [weak self] notification in
+            MainActor.assumeIsolated {
+                guard let self,
+                      CloudflareChallengeCoordinator.normalizedSite(for: self.baseURL)
+                        == (notification.userInfo?["baseURL"] as? String)
+                else { return }
                 self.topicTimingCoordinator.resetForEligibilityChange(
                     isEligible: ForumPolicy.tracksReadTimings(baseURL: self.baseURL)
                 )
@@ -599,6 +611,14 @@ final class DiscourseAPI {
             interceptor.updateCSRFToken(newToken)
         }
 
+        if let challengeError = cloudflareChallengeErrorIfNeeded(
+            data: response.data,
+            response: response.response,
+            request: response.request
+        ) {
+            throw challengeError
+        }
+
         if let authError = authenticationFailureError(
             statusCode: response.response?.statusCode,
             data: response.data
@@ -752,6 +772,13 @@ final class DiscourseAPI {
         let route = DiscourseRouter.deleteBookmark(id: id)
         let url = baseURL + route.path
         let response = await session.request(url, method: route.method).serializingData().response
+        if let challengeError = cloudflareChallengeErrorIfNeeded(
+            data: response.data,
+            response: response.response,
+            request: response.request
+        ) {
+            throw challengeError
+        }
         if let authError = authenticationFailureError(
             statusCode: response.response?.statusCode,
             data: response.data
@@ -771,8 +798,12 @@ final class DiscourseAPI {
             method: route.method,
             headers: ["X-Requested-With": "XMLHttpRequest"]
         ).serializingData().response
-        if isCloudflareChallengeResponse(response.data, response: response.response) {
-            throw DiscourseAPIError(messages: ["Cloudflare challenge required"], errorType: "challenge_required")
+        if let challengeError = cloudflareChallengeErrorIfNeeded(
+            data: response.data,
+            response: response.response,
+            request: response.request
+        ) {
+            throw challengeError
         }
         if let authError = authenticationFailureError(
             statusCode: response.response?.statusCode,
@@ -796,8 +827,12 @@ final class DiscourseAPI {
             method: route.method,
             headers: ["X-Requested-With": "XMLHttpRequest"]
         ).serializingData().response
-        if isCloudflareChallengeResponse(response.data, response: response.response) {
-            throw DiscourseAPIError(messages: ["Cloudflare challenge required"], errorType: "challenge_required")
+        if let challengeError = cloudflareChallengeErrorIfNeeded(
+            data: response.data,
+            response: response.response,
+            request: response.request
+        ) {
+            throw challengeError
         }
         if let authError = authenticationFailureError(
             statusCode: response.response?.statusCode,
@@ -826,8 +861,12 @@ final class DiscourseAPI {
             encoding: URLEncoding.default,
             headers: ["X-Requested-With": "XMLHttpRequest"]
         ).serializingData().response
-        if isCloudflareChallengeResponse(response.data, response: response.response) {
-            throw DiscourseAPIError(messages: ["Cloudflare challenge required"], errorType: "challenge_required")
+        if let challengeError = cloudflareChallengeErrorIfNeeded(
+            data: response.data,
+            response: response.response,
+            request: response.request
+        ) {
+            throw challengeError
         }
         if let authError = authenticationFailureError(
             statusCode: response.response?.statusCode,
@@ -848,8 +887,12 @@ final class DiscourseAPI {
             method: route.method,
             headers: ["X-Requested-With": "XMLHttpRequest"]
         ).serializingData().response
-        if isCloudflareChallengeResponse(response.data, response: response.response) {
-            throw DiscourseAPIError(messages: ["Cloudflare challenge required"], errorType: "challenge_required")
+        if let challengeError = cloudflareChallengeErrorIfNeeded(
+            data: response.data,
+            response: response.response,
+            request: response.request
+        ) {
+            throw challengeError
         }
         if let authError = authenticationFailureError(
             statusCode: response.response?.statusCode,
@@ -944,6 +987,13 @@ final class DiscourseAPI {
         if let id { parameters = ["id": id] }
         let response = await session.request(url, method: route.method, parameters: parameters, encoding: JSONEncoding.default)
             .serializingData().response
+        if let challengeError = cloudflareChallengeErrorIfNeeded(
+            data: response.data,
+            response: response.response,
+            request: response.request
+        ) {
+            throw challengeError
+        }
         if let authError = authenticationFailureError(
             statusCode: response.response?.statusCode,
             data: response.data
@@ -1056,10 +1106,12 @@ final class DiscourseAPI {
         let errorSummary: String?
         let retryAfter: TimeInterval?
 
-        if isCloudflareChallengeResponse(response.data, response: response.response) {
-            if let finalRequest {
-                WebCookieStore.shared.rejectClearanceSent(with: finalRequest)
-            }
+        if cloudflareChallengeErrorIfNeeded(
+            data: response.data,
+            response: response.response,
+            request: finalRequest,
+            reason: .readTiming
+        ) != nil {
             result = .cloudflareChallenge
             errorSummary = "Cloudflare challenge required"
             retryAfter = nil
@@ -1215,6 +1267,32 @@ final class DiscourseAPI {
         return fallback
     }
 
+    /// Central Cloudflare response boundary for every request made against the
+    /// forum origin. Cross-origin MessageBus traffic intentionally does not use
+    /// this helper because the linux.do challenge page cannot resolve it.
+    func cloudflareChallengeErrorIfNeeded(
+        data: Data?,
+        response: HTTPURLResponse?,
+        request: URLRequest?,
+        reason: CloudflareChallengeReason = .generalRequest
+    ) -> DiscourseAPIError? {
+        guard isCloudflareChallengeResponse(data, response: response) else { return nil }
+
+        let responseBelongsToLinuxDo = response?.url.map {
+            ForumPolicy.isLinuxDoFamily(baseURL: $0.absoluteString)
+        } ?? true
+        if ForumPolicy.isLinuxDoFamily(baseURL: baseURL), responseBelongsToLinuxDo {
+            if let request {
+                WebCookieStore.shared.rejectClearanceSent(with: request)
+            }
+            CloudflareChallengeCoordinator.shared.report(reason, for: baseURL)
+        }
+        return DiscourseAPIError(
+            messages: ["Cloudflare challenge required"],
+            errorType: "challenge_required"
+        )
+    }
+
     static func retryAfterDelay(
         from response: HTTPURLResponse?,
         now: Date = Date()
@@ -1255,6 +1333,13 @@ final class DiscourseAPI {
         req.setValue("text/html", forHTTPHeaderField: "Accept")
         // The interceptor selects API-key, web-login, or anonymous headers.
         let response = await session.request(req).serializingData().response
+        if cloudflareChallengeErrorIfNeeded(
+            data: response.data,
+            response: response.response,
+            request: response.request
+        ) != nil {
+            return nil
+        }
         if authenticationFailureError(
             statusCode: response.response?.statusCode,
             data: response.data
@@ -1426,8 +1511,12 @@ final class DiscourseAPI {
             )
         }
 
-        if isCloudflareChallengeResponse(response.data, response: response.response) {
-            throw DiscourseAPIError(messages: ["Cloudflare challenge required"], errorType: "challenge_required")
+        if let challengeError = cloudflareChallengeErrorIfNeeded(
+            data: response.data,
+            response: response.response,
+            request: response.request
+        ) {
+            throw challengeError
         }
 
         if let authError = authenticationFailureError(
@@ -1692,6 +1781,22 @@ private final class DiscourseAuthInterceptor: RequestInterceptor {
     }
 
     func retry(_ request: Request, for session: Session, dueTo error: any Error, completion: @escaping (RetryResult) -> Void) {
+        let responseData = (request as? DataRequest)?.data
+        if isCloudflareChallengeResponse(responseData, response: request.response) {
+            if let sentRequest = request.request {
+                WebCookieStore.shared.rejectClearanceSent(with: sentRequest)
+            }
+            let responseBelongsToLinuxDo = request.response?.url.map {
+                ForumPolicy.isLinuxDoFamily(baseURL: $0.absoluteString)
+            } ?? true
+            if ForumPolicy.isLinuxDoFamily(baseURL: baseURL), responseBelongsToLinuxDo {
+                Task { @MainActor [baseURL] in
+                    CloudflareChallengeCoordinator.shared.report(.generalRequest, for: baseURL)
+                }
+            }
+            completion(.doNotRetry)
+            return
+        }
         guard let userApiKey = KeychainHelper.getUserApiKey(for: baseURL),
               userApiKey == AuthManager.webAuthSentinel,
               allowsImmediateMutatingAuthRetry(for: request.request?.url),
@@ -1776,6 +1881,18 @@ private final class DiscourseAuthInterceptor: RequestInterceptor {
         if !cookieHeader.isEmpty { req.setValue(cookieHeader, forHTTPHeaderField: "Cookie") }
         if let ua = WebCookieStore.shared.userAgent(for: url) { req.setValue(ua, forHTTPHeaderField: "User-Agent") }
         session.request(req).responseData { response in
+            if isCloudflareChallengeResponse(response.data, response: response.response),
+               ForumPolicy.isLinuxDoFamily(baseURL: self.baseURL)
+            {
+                if let sentRequest = response.request {
+                    WebCookieStore.shared.rejectClearanceSent(with: sentRequest)
+                }
+                Task { @MainActor [baseURL = self.baseURL] in
+                    CloudflareChallengeCoordinator.shared.report(.generalRequest, for: baseURL)
+                }
+                completion(nil)
+                return
+            }
             guard let data = response.data,
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let token = json["csrf"] as? String

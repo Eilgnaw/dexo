@@ -14,9 +14,10 @@ final class AddForumViewModelTests: XCTestCase {
 
         let result = await viewModel.addForum()
 
-        guard case .challengeRequired = result else {
+        guard case .challengeRequired(let baseURL) = result else {
             return XCTFail("Expected a Cloudflare challenge result")
         }
+        XCTAssertEqual(baseURL, "https://linux.do")
         XCTAssertFalse(viewModel.isLoading)
         XCTAssertEqual(
             viewModel.errorMessage,

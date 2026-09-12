@@ -196,8 +196,8 @@ final class HomeViewModel {
             canLoadMore = result.topicList.moreTopicsUrl != nil
             indexUsers(result.users)
         } catch {
-            // Keep ordinary load-more failures silent, but a Cloudflare
-            // challenge needs an actionable prompt instead of endless retries.
+            // Keep ordinary load-more failures silent, but expose a Cloudflare
+            // challenge so the shared coordinator can retain actionable state.
             if let apiError = error as? DiscourseAPIError, apiError.isChallengeRequired {
                 requiresChallenge = true
             }
@@ -244,8 +244,8 @@ final class HomeViewModel {
             categories = list.categoryList.categories
             indexCategories(list.categoryList.categories)
         } catch {
-            // Category names are non-critical, but do not hide a Cloudflare
-            // challenge encountered by this parallel homepage request.
+            // Category names are non-critical, but retain challenge state from
+            // this parallel request for the shared non-modal indicator.
             guard generation == requestGeneration else { return }
             if let apiError = error as? DiscourseAPIError, apiError.isChallengeRequired {
                 requiresChallenge = true

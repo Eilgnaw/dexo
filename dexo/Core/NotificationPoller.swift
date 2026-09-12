@@ -18,6 +18,7 @@ final class NotificationPoller {
 
     private let api: DiscourseAPI
     private let usernameProvider: () -> String?
+    private let challengeCoordinator: CloudflareChallengeCoordinator
     private var isActive = false
     private var pollTask: Task<Void, Never>?
 
@@ -37,9 +38,14 @@ final class NotificationPoller {
 
     private static let initialDelay: TimeInterval = 3
 
-    init(api: DiscourseAPI, usernameProvider: @escaping () -> String?) {
+    init(
+        api: DiscourseAPI,
+        usernameProvider: @escaping () -> String?,
+        challengeCoordinator: CloudflareChallengeCoordinator = .shared
+    ) {
         self.api = api
         self.usernameProvider = usernameProvider
+        self.challengeCoordinator = challengeCoordinator
     }
 
     func start() {
@@ -48,6 +54,12 @@ final class NotificationPoller {
 
         NotificationCenter.default.addObserver(self, selector: #selector(appDidBecomeActive), name: UIScene.didActivateNotification, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(appDidEnterBackground), name: UIScene.didEnterBackgroundNotification, object: nil)
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(cloudflareChallengeStateDidChange(_:)),
+            name: .cloudflareChallengeStateDidChange,
+            object: challengeCoordinator
+        )
 
         startPolling(delay: Self.initialDelay)
     }
@@ -82,10 +94,31 @@ final class NotificationPoller {
         pollTask = nil
     }
 
+    @objc private func cloudflareChallengeStateDidChange(_ notification: Notification) {
+        guard CloudflareChallengeCoordinator.normalizedSite(for: api.baseURL)
+                == (notification.userInfo?["baseURL"] as? String)
+        else { return }
+
+        if challengeCoordinator.requiresVerification(for: api.baseURL) {
+            pollTask?.cancel()
+            pollTask = nil
+            seeded = false
+            sharedSessionKey = nil
+        } else if isActive {
+            circuitOpen = false
+            consecutiveFailures = 0
+            startPolling(delay: Self.initialDelay)
+        }
+    }
+
     // MARK: - Long-poll loop
 
     private func startPolling(delay: TimeInterval) {
         pollTask?.cancel()
+        guard challengeCoordinator.allowsAutomaticRequests(for: api.baseURL) else {
+            pollTask = nil
+            return
+        }
         pollTask = Task { [weak self] in
             if delay > 0 {
                 try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
@@ -111,6 +144,7 @@ final class NotificationPoller {
     /// First poll: fetch current user for initial unread state + user ID,
     /// then seed MessageBus channel positions with -1.
     private func seedInitialState() async {
+        guard challengeCoordinator.allowsAutomaticRequests(for: api.baseURL) else { return }
         // linux.do's /session/current.json returns empty, so skip it entirely there.
         if !api.isLinuxDo, let user = try? await api.fetchCurrentUser() {
             userId = user.id
@@ -141,6 +175,9 @@ final class NotificationPoller {
         {
             sharedSessionKey = await api.fetchSharedSessionKey()
         }
+        guard !Task.isCancelled,
+              challengeCoordinator.allowsAutomaticRequests(for: api.baseURL)
+        else { return }
 
         // Seed MessageBus channel positions from /__status response
         let channels: [String: Int] = ["/notification/\(userId!)": -1]
@@ -211,4 +248,8 @@ final class NotificationPoller {
     deinit {
         stop()
     }
+
+    #if DEBUG
+    var hasScheduledPollForTesting: Bool { pollTask != nil }
+    #endif
 }

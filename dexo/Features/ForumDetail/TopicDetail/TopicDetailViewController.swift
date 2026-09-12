@@ -2557,7 +2557,7 @@ extension LegacyTopicDetailViewController: PostCellDelegate {
                     playReactionDestinationFeedback(forPostId: post.id)
                 }
             } catch {
-                presentChallengePromptIfNeeded(error: error, on: api)
+                handleCloudflareChallengeIfNeeded(error: error, on: api)
             }
         }
     }
@@ -2575,7 +2575,7 @@ extension LegacyTopicDetailViewController: PostCellDelegate {
                     playReactionDestinationFeedback(forPostId: post.id)
                 }
             } catch {
-                presentChallengePromptIfNeeded(error: error, on: api)
+                handleCloudflareChallengeIfNeeded(error: error, on: api)
             }
         }
     }
@@ -2587,7 +2587,7 @@ extension LegacyTopicDetailViewController: PostCellDelegate {
     private func handleLoadErrorIfNeeded() {
         guard let error = viewModel.lastLoadError else { return }
         viewModel.lastLoadError = nil
-        presentChallengePromptIfNeeded(error: error, on: api)
+        handleCloudflareChallengeIfNeeded(error: error, on: api)
     }
 
     private func playReactionSuccessFeedback(forPostId postId: Int, animated: Bool) {
@@ -2666,7 +2666,7 @@ extension LegacyTopicDetailViewController: PostCellDelegate {
                         self.refreshBoostUI()
                     }
                 } catch {
-                    if self.presentChallengePromptIfNeeded(error: error, on: self.api) {
+                    if self.handleCloudflareChallengeIfNeeded(error: error, on: self.api) {
                         return
                     }
                     let failureAlert = UIAlertController(
@@ -2909,7 +2909,7 @@ extension LegacyTopicDetailViewController: PostCellDelegate {
                     }
                     self.refreshBoostUI()
                 } catch {
-                    if self.presentChallengePromptIfNeeded(error: error, on: self.api) {
+                    if self.handleCloudflareChallengeIfNeeded(error: error, on: self.api) {
                         return
                     }
                     let failureAlert = UIAlertController(

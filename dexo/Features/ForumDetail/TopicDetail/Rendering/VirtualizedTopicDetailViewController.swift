@@ -745,7 +745,7 @@ final class VirtualizedTopicDetailViewController: ObservableViewController, UIGe
     private func handleLoadErrorIfNeeded() {
         guard let error = viewModel.lastLoadError else { return }
         viewModel.lastLoadError = nil
-        presentChallengePromptIfNeeded(error: error, on: api)
+        handleCloudflareChallengeIfNeeded(error: error, on: api)
     }
 
     private func retryPagination() {
@@ -2082,7 +2082,7 @@ extension VirtualizedTopicDetailViewController: PostCellDelegate {
                 if let fresh = try? await api.fetchPost(id: post.id) { await viewModel.replacePost(fresh) }
                 applySnapshot(reloadVisible: true)
             } catch {
-                if !presentChallengePromptIfNeeded(error: error, on: api) { presentError(error) }
+                if !handleCloudflareChallengeIfNeeded(error: error, on: api) { presentError(error) }
             }
         }
     }
@@ -2115,7 +2115,7 @@ extension VirtualizedTopicDetailViewController: PostCellDelegate {
                 }
                 applySnapshot(reloadVisible: true)
             } catch {
-                presentChallengePromptIfNeeded(error: error, on: api)
+                handleCloudflareChallengeIfNeeded(error: error, on: api)
             }
         }
     }
@@ -2143,7 +2143,7 @@ extension VirtualizedTopicDetailViewController: PostCellDelegate {
                     // Reconfigure the visible footer so its temporarily
                     // disabled solution button becomes interactive again.
                     self.applySnapshot(reloadVisible: true, preserving: self.captureAnchor())
-                    if !self.presentChallengePromptIfNeeded(error: error, on: self.api) {
+                    if !self.handleCloudflareChallengeIfNeeded(error: error, on: self.api) {
                         self.presentError(error)
                     }
                 }
@@ -2163,7 +2163,7 @@ extension VirtualizedTopicDetailViewController: PostCellDelegate {
                 }
                 applySnapshot(reloadVisible: true)
             } catch {
-                presentChallengePromptIfNeeded(error: error, on: api)
+                handleCloudflareChallengeIfNeeded(error: error, on: api)
             }
         }
     }
@@ -2200,7 +2200,7 @@ extension VirtualizedTopicDetailViewController: PostCellDelegate {
                     }
                     self.applySnapshot(reloadVisible: true)
                 } catch {
-                    if self.presentChallengePromptIfNeeded(error: error, on: self.api) { return }
+                    if self.handleCloudflareChallengeIfNeeded(error: error, on: self.api) { return }
                     self.presentError(error)
                 }
             }
@@ -2227,7 +2227,7 @@ extension VirtualizedTopicDetailViewController: PostCellDelegate {
                     }
                     self.applySnapshot(reloadVisible: true)
                 } catch {
-                    if self.presentChallengePromptIfNeeded(error: error, on: self.api) { return }
+                    if self.handleCloudflareChallengeIfNeeded(error: error, on: self.api) { return }
                     self.presentError(error)
                 }
             }
@@ -2275,7 +2275,7 @@ extension VirtualizedTopicDetailViewController: PostCellDelegate {
                 invalidateHeightMeasurements(forPostId: post.id)
                 applySnapshot(reloadVisible: true)
             } catch {
-                if !presentChallengePromptIfNeeded(error: error, on: api) { presentError(error) }
+                if !handleCloudflareChallengeIfNeeded(error: error, on: api) { presentError(error) }
             }
         }
     }
@@ -2288,7 +2288,7 @@ extension VirtualizedTopicDetailViewController: PostCellDelegate {
                 invalidateHeightMeasurements(forPostId: post.id)
                 applySnapshot(reloadVisible: true)
             } catch {
-                if !presentChallengePromptIfNeeded(error: error, on: api) { presentError(error) }
+                if !handleCloudflareChallengeIfNeeded(error: error, on: api) { presentError(error) }
             }
         }
     }
@@ -2331,7 +2331,7 @@ extension VirtualizedTopicDetailViewController: PostCellDelegate {
                 alert.addAction(UIAlertAction(title: String(localized: "action.ok"), style: .default))
                 present(alert, animated: true)
             } catch {
-                if !presentChallengePromptIfNeeded(error: error, on: api) { presentError(error) }
+                if !handleCloudflareChallengeIfNeeded(error: error, on: api) { presentError(error) }
             }
         }
     }
@@ -2449,7 +2449,7 @@ extension VirtualizedTopicDetailViewController: PostCellDelegate {
                 }
             } catch {
                 activityIndicator.stopAnimating()
-                if !presentChallengePromptIfNeeded(error: error, on: api) {
+                if !handleCloudflareChallengeIfNeeded(error: error, on: api) {
                     presentError(error)
                 }
             }

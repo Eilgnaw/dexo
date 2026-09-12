@@ -21,10 +21,10 @@ final class ForumContainerViewController: BaseViewController, AuthGating {
     private var isRegisteringPush = false
     private var pendingPushDestination: PendingPushDestination?
 
-    private lazy var readTimingChallengeIndicator = ReadTimingChallengeIndicatorView {
-        [weak self] action in
-        self?.handleReadTimingChallengeAction(action)
-    }
+    private lazy var challengeIndicatorHost = CloudflareChallengeIndicatorHost(
+        baseURLProvider: { [weak self] in self?.api.baseURL },
+        presenterProvider: { [weak self] in self }
+    )
 
     private let pushRegistrationLoadingIndicator: UIActivityIndicatorView = {
         let indicator = UIActivityIndicatorView(style: .medium)
@@ -164,7 +164,7 @@ final class ForumContainerViewController: BaseViewController, AuthGating {
         authManager.restoreAuthState(for: forum)
 
         setupTabBar()
-        setupReadTimingChallengeIndicator()
+        setupCloudflareChallengeIndicator()
         setupPushRegistrationLoadingOverlay()
         configureNavItems()
         startObservingAuth()
@@ -205,23 +205,26 @@ final class ForumContainerViewController: BaseViewController, AuthGating {
             notificationPoller?.stop()
             notificationPoller = nil
         }
-        updateReadTimingChallengeIndicator(animated: false)
+        challengeIndicatorHost.refresh(animated: false)
     }
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         openPendingPushDestinationIfPossible()
-        updateReadTimingChallengeIndicator(animated: true)
+        challengeIndicatorHost.refresh(animated: true)
         presentPendingAlertsIfPossible()
     }
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        updateReadTimingChallengeIndicatorPlacement()
+        updateCloudflareChallengeIndicatorPlacement()
     }
 
     @objc private func readTimingsSettingDidChange() {
-        updateReadTimingChallengeIndicator(animated: true)
+        if !AppSettings.shared.linuxDoReadTimingsEnabled {
+            CloudflareChallengeCoordinator.shared.clear(.readTiming, for: api.baseURL)
+        }
+        challengeIndicatorHost.refresh(animated: true)
     }
 
     @objc private func presentPendingAlertsIfPossible() {
@@ -239,20 +242,12 @@ final class ForumContainerViewController: BaseViewController, AuthGating {
         presentPostLoginPushPromptIfNeeded()
     }
 
-    private func setupReadTimingChallengeIndicator() {
-        view.addSubview(readTimingChallengeIndicator)
-        updateReadTimingChallengeIndicator(animated: false)
+    private func setupCloudflareChallengeIndicator() {
+        challengeIndicatorHost.install(in: view)
+        updateCloudflareChallengeIndicatorPlacement()
     }
 
-    private func updateReadTimingChallengeIndicator(animated: Bool) {
-        let shouldShow = api.isLinuxDo
-            && ForumPolicy.readTimingReportingStatus(baseURL: api.baseURL) == .verificationRequired
-        readTimingChallengeIndicator.configureTheme()
-        readTimingChallengeIndicator.setPresented(shouldShow, animated: animated)
-        updateReadTimingChallengeIndicatorPlacement()
-    }
-
-    private func updateReadTimingChallengeIndicatorPlacement() {
+    private func updateCloudflareChallengeIndicatorPlacement() {
         guard view.bounds.width > 0, view.bounds.height > 0 else { return }
         let safeBounds = view.bounds.inset(by: view.safeAreaInsets)
         var top = safeBounds.minY
@@ -286,26 +281,7 @@ final class ForumContainerViewController: BaseViewController, AuthGating {
         } else {
             availableBounds = safeBounds
         }
-        readTimingChallengeIndicator.updatePlacement(in: availableBounds)
-    }
-
-    private func handleReadTimingChallengeAction(
-        _ action: ReadTimingChallengeIndicatorView.Action
-    ) {
-        switch action {
-        case .disableReporting:
-            AppSettings.shared.linuxDoReadTimingsEnabled = false
-
-        case .openChallenge:
-            guard AppSettings.shared.linuxDoReadTimingsNeedsVerification else { return }
-            DispatchQueue.main.async { [weak self] in
-                guard let self, self.presentedViewController == nil else { return }
-                ChallengeViewController.present(from: self) { result in
-                    guard result == .completed else { return }
-                    AppSettings.shared.linuxDoReadTimingsNeedsVerification = false
-                }
-            }
-        }
+        challengeIndicatorHost.updatePlacement(in: availableBounds)
     }
 
     private func presentPostLoginPushPromptIfNeeded() {
@@ -502,7 +478,7 @@ final class ForumContainerViewController: BaseViewController, AuthGating {
     @objc private func updateTabBarTheme() {
         guard let tabBarVC = children.first as? ForumTabBarController else { return }
         tabBarVC.tabBar.tintColor = ThemeManager.shared.accentColor
-        readTimingChallengeIndicator.configureTheme()
+        challengeIndicatorHost.indicator.configureTheme()
     }
 
     private func configureNavItems() {

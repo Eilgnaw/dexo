@@ -1,3 +1,9 @@
+Unified Cloudflare Verification
+
+- A Cloudflare Challenge while browsing or posting on linux.do, or while adding the forum, should show one draggable edge-snapping shield without an alert.
+- The shield should offer verification, ignoring the prompt, or disabling read-time reporting when applicable. Cancellation or relaunch should preserve the state; completing verification resumes background requests, while the failed action still requires a manual retry.
+- With DoH enabled, the verification page must use the selected DoH configuration and never silently fall back if its proxy fails. DoH-off and iOS 15/16 compatibility should remain unchanged.
+
 First Launch and Default Forum
 
 - On a fresh installation, confirm https://discuss.python.org is added and opened automatically. Browse public topics, categories, and search without signing in. Auto-open Last Forum should be enabled by default, with no extra prompt to enable it.

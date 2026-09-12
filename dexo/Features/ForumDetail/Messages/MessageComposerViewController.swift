@@ -232,7 +232,7 @@ final class MessageComposerViewController: BaseViewController {
                 bodyTextView.isEditable = true
                 subjectField.isEnabled = true
                 updateSendButton()
-                if presentChallengePromptIfNeeded(error: error, on: api) {
+                if handleCloudflareChallengeIfNeeded(error: error, on: api) {
                     return
                 }
                 let alert = UIAlertController(

@@ -4,7 +4,7 @@ import Perception
 
 enum AddForumResult {
     case added
-    case challengeRequired
+    case challengeRequired(baseURL: String)
     case failed
 }
 
@@ -70,7 +70,7 @@ final class AddForumViewModel {
             {
                 errorMessage = String(localized: "add_forum.error.challenge")
                 isLoading = false
-                return .challengeRequired
+                return .challengeRequired(baseURL: normalized)
             }
 
             errorMessage = String(localized: "add_forum.error.connect \(error.localizedDescription)")

@@ -519,7 +519,7 @@ final class ReplyComposerViewController: BaseViewController {
                 navigationItem.rightBarButtonItem = sendButton
                 sendButton.isEnabled = true
                 textView.isEditable = true
-                if presentChallengePromptIfNeeded(error: error, on: api) {
+                if handleCloudflareChallengeIfNeeded(error: error, on: api) {
                     return
                 }
                 let failureTitle = isEditingPost
