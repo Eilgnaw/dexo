@@ -4,6 +4,11 @@ Unified Cloudflare Verification
 - The shield should offer verification, ignoring the prompt, or disabling read-time reporting when applicable. Cancellation or relaunch should preserve the state; completing verification resumes background requests, while the failed action still requires a manual retry.
 - With DoH enabled, the verification page must use the selected DoH configuration and never silently fall back if its proxy fails. DoH-off and iOS 15/16 compatibility should remain unchanged.
 
+Category Filter Button
+
+- On a forum's topic list, confirm the top-left category filter is icon-only and has no selected appearance while "All Categories" is active.
+- Select a category and confirm the same icon shows the system selected appearance. Reopen the menu, choose "All Categories," and confirm the selected appearance is removed.
+
 First Launch and Default Forum
 
 - On a fresh installation, confirm https://discuss.python.org is added and opened automatically. Browse public topics, categories, and search without signing in. Auto-open Last Forum should be enabled by default, with no extra prompt to enable it.

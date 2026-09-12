@@ -18,21 +18,10 @@ final class HomeViewController: ObservableViewController {
     /// Right bar button items injected by the container (e.g. minimize button), captured before we add our own.
     private var inheritedRightBarItems: [UIBarButtonItem] = []
 
-    private let categoryButton: UIButton = {
-        var config = UIButton.Configuration.plain()
-        config.title = String(localized: "home.filter.all_categories")
-        config.image = UIImage(systemName: "line.3.horizontal.decrease", withConfiguration: UIImage.SymbolConfiguration(pointSize: 13))
-        config.imagePlacement = .leading
-        config.imagePadding = 6
-        config.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attrs in
-            var a = attrs
-            a.font = FontManager.shared.font(size: 15, weight: .medium)
-            return a
-        }
-        let button = UIButton(configuration: config)
-        button.showsMenuAsPrimaryAction = true
-        return button
-    }()
+    private lazy var categoryBarButton = UIBarButtonItem(
+        image: UIImage(systemName: "line.3.horizontal.decrease"),
+        menu: nil
+    )
 
     private lazy var tableView: UITableView = {
         let tv = ThemedTableView(frame: .zero, style: .plain)
@@ -251,7 +240,7 @@ final class HomeViewController: ObservableViewController {
             object: nil
         )
 
-        navigationItem.leftBarButtonItem = UIBarButtonItem(customView: categoryButton)
+        navigationItem.leftBarButtonItem = categoryBarButton
         inheritedRightBarItems = navigationItem.rightBarButtonItems ?? []
         navigationItem.rightBarButtonItems = inheritedRightBarItems + [Self.makeRightBarSpacer(), sortBarButton]
 
@@ -305,7 +294,7 @@ final class HomeViewController: ObservableViewController {
         tableView.isHidden = false
         navigationItem.rightBarButtonItems = inheritedRightBarItems + [Self.makeRightBarSpacer(), sortBarButton]
         composeButton.backgroundColor = ThemeManager.shared.accentColor
-        categoryButton.menu = UIMenu(title: "", children: buildCategoryMenuElements())
+        categoryBarButton.menu = UIMenu(title: "", children: buildCategoryMenuElements())
         sortBarButton.menu = buildSortMenu()
         updateCategoryButton()
         // Show non-login errors (e.g. rate limit) when topic list is empty
@@ -512,22 +501,10 @@ final class HomeViewController: ObservableViewController {
     private func updateCategoryButton() {
         let selected = viewModel.selectedCategory()
         let title = selected?.name ?? String(localized: "home.filter.all_categories")
-        var config = categoryButton.configuration ?? UIButton.Configuration.plain()
-        config.title = title
-        if let selected, let color = Self.color(fromHex: selected.color) {
-            config.image = UIImage(systemName: "circle.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 10))
-            config.baseForegroundColor = color
-        } else {
-            config.image = UIImage(systemName: "line.3.horizontal.decrease", withConfiguration: UIImage.SymbolConfiguration(pointSize: 13))
-            config.baseForegroundColor = nil
-        }
-        categoryButton.configuration = config
-        categoryButton.sizeToFit()
-
-        categoryButton.accessibilityLabel = String(localized: "home.filter.accessibility.label")
-        categoryButton.accessibilityValue = title
-        categoryButton.accessibilityHint = String(localized: "home.filter.accessibility.hint")
-        categoryButton.accessibilityTraits = [.button]
+        categoryBarButton.isSelected = selected != nil
+        categoryBarButton.accessibilityLabel = String(localized: "home.filter.accessibility.label")
+        categoryBarButton.accessibilityValue = title
+        categoryBarButton.accessibilityHint = String(localized: "home.filter.accessibility.hint")
     }
 
     private func buildCategoryMenuElements() -> [UIMenuElement] {
