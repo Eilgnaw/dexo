@@ -88,7 +88,11 @@ enum ForumNotificationMetadataSynchronizer {
               data.count <= 2 * 1024 * 1024,
               let image = SDImageCodersManager.shared.decodedImage(
                 with: data,
-                options: nil
+                options: [
+                    .decodeThumbnailPixelSize: NSValue(
+                        cgSize: CGSize(width: 384, height: 384)
+                    ),
+                ]
               ) else { return nil }
         return rasterizedPNG(image)
     }

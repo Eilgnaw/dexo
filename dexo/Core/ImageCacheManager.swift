@@ -15,6 +15,7 @@ final class ImageCacheManager {
     let avatarContext: [SDWebImageContextOption: Any]
     let emojiContext: [SDWebImageContextOption: Any]
     let contentContext: [SDWebImageContextOption: Any]
+    let fullScreenContentContext: [SDWebImageContextOption: Any]
 
     private init() {
         avatarCache = SDImageCache(namespace: "avatars")
@@ -37,9 +38,26 @@ final class ImageCacheManager {
         avatarCache.config.maxMemoryCost = 30 * 1024 * 1024       // 30 MiB
         avatarCache.config.maxMemoryCount = 1500
 
-        avatarContext = [.imageCache: avatarCache]
-        emojiContext = [.imageCache: emojiCache]
-        contentContext = [.imageCache: contentCache]
+        // A nonzero thumbnail size makes SDImageSVGCoder rasterize SVGs instead
+        // of creating a vector UIImage. The vector path can crash inside
+        // CoreSVG while SDWebImage validates the image on a background queue.
+        // These are pixel bounds (not points) and preserve the aspect ratio.
+        avatarContext = [
+            .imageCache: avatarCache,
+            .imageThumbnailPixelSize: NSValue(cgSize: CGSize(width: 512, height: 512)),
+        ]
+        emojiContext = [
+            .imageCache: emojiCache,
+            .imageThumbnailPixelSize: NSValue(cgSize: CGSize(width: 256, height: 256)),
+        ]
+        contentContext = [
+            .imageCache: contentCache,
+            .imageThumbnailPixelSize: NSValue(cgSize: CGSize(width: 2048, height: 2048)),
+        ]
+        fullScreenContentContext = [
+            .imageCache: contentCache,
+            .imageThumbnailPixelSize: NSValue(cgSize: CGSize(width: 4096, height: 4096)),
+        ]
     }
 
     struct CacheInfo {

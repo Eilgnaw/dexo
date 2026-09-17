@@ -1726,7 +1726,13 @@ extension VirtualizedTopicDetailViewController: UICollectionViewDelegate, UIColl
             let annotated = AnnotatedBlock(block: unit.block, sourceHTML: unit.sourceHTML)
             let urls = ImageURLCollector.collectImageURLs(from: [annotated]).compactMap(URL.init(string:))
             guard !urls.isEmpty else { continue }
-            if let token = SDWebImagePrefetcher.shared.prefetchURLs(urls) {
+            if let token = SDWebImagePrefetcher.shared.prefetchURLs(
+                urls,
+                options: .lowPriority,
+                context: ImageCacheManager.shared.contentContext,
+                progress: nil,
+                completed: nil
+            ) {
                 imagePrefetchTokens[item] = token
             }
         }

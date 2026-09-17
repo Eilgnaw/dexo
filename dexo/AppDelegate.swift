@@ -39,7 +39,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
                 with: url,
                 placeholderImage: nil,
                 options: [.retryFailed, .highPriority, .refreshCached],
-                context: ImageCacheManager.shared.contentContext,
+                context: ImageCacheManager.shared.fullScreenContentContext,
                 progress: nil
             ) { image, _, _, _ in
                 completion?(image)

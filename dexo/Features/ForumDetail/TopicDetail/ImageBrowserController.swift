@@ -274,7 +274,7 @@ final class ImageBrowserController: LightboxController {
         SDWebImageManager.shared.loadImage(
             with: url,
             options: [],
-            context: ImageCacheManager.shared.contentContext,
+            context: ImageCacheManager.shared.fullScreenContentContext,
             progress: nil
         ) { [weak self] image, _, _, _, _, _ in
             guard let self else { return }
