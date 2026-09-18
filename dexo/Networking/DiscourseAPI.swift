@@ -255,11 +255,10 @@ final class DiscourseAPI {
                 trippedBreaker: trippedBreaker
             )
         },
-        onAuthenticationFailure: { [weak self] in
-            guard let self else { return }
-            PushSubscriptionCoordinator(api: self).retireLocalSubscriptions()
-            AuthManager.shared.invalidateExpiredAuthentication(for: self.baseURL)
-        }
+        // The transport handles the response with the revision captured when
+        // the request began. A delayed timing callback must not clear a newer
+        // login.
+        onAuthenticationFailure: {}
     )
 
     init(forum: ForumInstance) {
@@ -580,6 +579,41 @@ final class DiscourseAPI {
         return response.currentUser
     }
 
+    /// Checks an authenticated endpoint even when the public topic feed still
+    /// works. A malformed or unavailable response is inconclusive.
+    func verifyAuthentication() async {
+        let auth = AuthManager.shared
+        guard auth.isAuthenticated(for: baseURL) else { return }
+        let revision = auth.authenticationRevision(for: baseURL)
+        if auth.authenticationKind(for: baseURL) == .webSession,
+           !auth.hasUsableWebSession(for: baseURL)
+        {
+            expireAuthentication(expectedRevision: revision)
+            return
+        }
+
+        let route: DiscourseRouter = isLinuxDo
+            ? .notifications(limit: 1, filter: nil) : .currentUser
+        let response = await session.request(baseURL + route.path)
+            .serializingData().response
+        guard !Task.isCancelled,
+              auth.authenticationRevision(for: baseURL) == revision
+        else { return }
+        if cloudflareChallengeErrorIfNeeded(
+            data: response.data,
+            response: response.response,
+            request: response.request
+        ) != nil { return }
+        if assessAuthenticationProbe(
+            isLinuxDo: isLinuxDo,
+            statusCode: response.response?.statusCode,
+            data: response.data,
+            finalURL: response.response?.url
+        ) == .expired {
+            expireAuthentication(expectedRevision: revision)
+        }
+    }
+
     func createTopic(title: String, categoryId: Int, raw: String, tags: [String] = []) async throws -> DiscourseCreatePostResponse {
         var params: [String: Any] = [
             "title": title,
@@ -594,6 +628,7 @@ final class DiscourseAPI {
 
     func uploadImage(data: Data, filename: String) async throws -> DiscourseUploadResponse {
         let url = baseURL + DiscourseRouter.uploadImage.path
+        let authRevision = AuthManager.shared.authenticationRevision(for: baseURL)
         let response = await session.upload(
             multipartFormData: { formData in
                 formData.append(Data("composer".utf8), withName: "type")
@@ -621,7 +656,8 @@ final class DiscourseAPI {
 
         if let authError = authenticationFailureError(
             statusCode: response.response?.statusCode,
-            data: response.data
+            data: response.data,
+            expectedRevision: authRevision
         ) {
             throw authError
         }
@@ -771,6 +807,7 @@ final class DiscourseAPI {
     func deleteBookmark(id: Int) async throws {
         let route = DiscourseRouter.deleteBookmark(id: id)
         let url = baseURL + route.path
+        let authRevision = AuthManager.shared.authenticationRevision(for: baseURL)
         let response = await session.request(url, method: route.method).serializingData().response
         if let challengeError = cloudflareChallengeErrorIfNeeded(
             data: response.data,
@@ -781,7 +818,8 @@ final class DiscourseAPI {
         }
         if let authError = authenticationFailureError(
             statusCode: response.response?.statusCode,
-            data: response.data
+            data: response.data,
+            expectedRevision: authRevision
         ) {
             throw authError
         }
@@ -793,6 +831,7 @@ final class DiscourseAPI {
     func deleteBoost(id: Int) async throws {
         let route = DiscourseRouter.deleteBoost(id: id)
         let url = baseURL + route.path
+        let authRevision = AuthManager.shared.authenticationRevision(for: baseURL)
         let response = await session.request(
             url,
             method: route.method,
@@ -807,7 +846,8 @@ final class DiscourseAPI {
         }
         if let authError = authenticationFailureError(
             statusCode: response.response?.statusCode,
-            data: response.data
+            data: response.data,
+            expectedRevision: authRevision
         ) {
             throw authError
         }
@@ -819,6 +859,7 @@ final class DiscourseAPI {
     func toggleReaction(postId: Int, reactionId: String) async throws {
         let route = DiscourseRouter.toggleReaction(postId: postId, reactionId: reactionId)
         let url = baseURL + route.path
+        let authRevision = AuthManager.shared.authenticationRevision(for: baseURL)
         // Discourse rejects state-changing requests without `X-Requested-With:
         // XMLHttpRequest` (CSRF/origin guard) → 403. The web client always
         // sends it; mirror that here.
@@ -836,7 +877,8 @@ final class DiscourseAPI {
         }
         if let authError = authenticationFailureError(
             statusCode: response.response?.statusCode,
-            data: response.data
+            data: response.data,
+            expectedRevision: authRevision
         ) {
             throw authError
         }
@@ -849,6 +891,7 @@ final class DiscourseAPI {
     func likePost(postId: Int) async throws {
         let route = DiscourseRouter.likePost
         let url = baseURL + route.path
+        let authRevision = AuthManager.shared.authenticationRevision(for: baseURL)
         let parameters: Parameters = [
             "id": postId,
             "post_action_type_id": 2,
@@ -870,7 +913,8 @@ final class DiscourseAPI {
         }
         if let authError = authenticationFailureError(
             statusCode: response.response?.statusCode,
-            data: response.data
+            data: response.data,
+            expectedRevision: authRevision
         ) {
             throw authError
         }
@@ -882,6 +926,7 @@ final class DiscourseAPI {
     func unlikePost(postId: Int) async throws {
         let route = DiscourseRouter.unlikePost(postId: postId)
         let url = baseURL + route.path
+        let authRevision = AuthManager.shared.authenticationRevision(for: baseURL)
         let response = await session.request(
             url,
             method: route.method,
@@ -896,7 +941,8 @@ final class DiscourseAPI {
         }
         if let authError = authenticationFailureError(
             statusCode: response.response?.statusCode,
-            data: response.data
+            data: response.data,
+            expectedRevision: authRevision
         ) {
             throw authError
         }
@@ -983,6 +1029,7 @@ final class DiscourseAPI {
     func markNotificationRead(id: Int? = nil) async throws {
         let route = DiscourseRouter.markNotificationRead
         let url = baseURL + route.path
+        let authRevision = AuthManager.shared.authenticationRevision(for: baseURL)
         var parameters: Parameters?
         if let id { parameters = ["id": id] }
         let response = await session.request(url, method: route.method, parameters: parameters, encoding: JSONEncoding.default)
@@ -996,7 +1043,8 @@ final class DiscourseAPI {
         }
         if let authError = authenticationFailureError(
             statusCode: response.response?.statusCode,
-            data: response.data
+            data: response.data,
+            expectedRevision: authRevision
         ) {
             throw authError
         }
@@ -1059,6 +1107,7 @@ final class DiscourseAPI {
             )
         }
 
+        let authRevision = AuthManager.shared.authenticationRevision(for: baseURL)
         let attemptedAt = Date()
         let response = await session.request(request).serializingData().response
         let requestDuration = Int(Date().timeIntervalSince(attemptedAt) * 1000)
@@ -1120,6 +1169,7 @@ final class DiscourseAPI {
             errorSummary = nil
             retryAfter = nil
         } else if isDiscourseAuthenticationFailure(statusCode: statusCode, data: response.data) {
+            expireAuthentication(expectedRevision: authRevision)
             result = .authenticationFailure
             errorSummary = topicTimingErrorSummary(
                 statusCode: statusCode,
@@ -1332,6 +1382,7 @@ final class DiscourseAPI {
         var req = URLRequest(url: url)
         req.setValue("text/html", forHTTPHeaderField: "Accept")
         // The interceptor selects API-key, web-login, or anonymous headers.
+        let authRevision = AuthManager.shared.authenticationRevision(for: baseURL)
         let response = await session.request(req).serializingData().response
         if cloudflareChallengeErrorIfNeeded(
             data: response.data,
@@ -1342,7 +1393,8 @@ final class DiscourseAPI {
         }
         if authenticationFailureError(
             statusCode: response.response?.statusCode,
-            data: response.data
+            data: response.data,
+            expectedRevision: authRevision
         ) != nil {
             return nil
         }
@@ -1365,11 +1417,13 @@ final class DiscourseAPI {
         if let sharedSessionKey {
             headers.add(name: "X-Shared-Session-Key", value: sharedSessionKey)
         }
+        let authRevision = AuthManager.shared.authenticationRevision(for: baseURL)
         let response = await session.request(url, method: route.method, parameters: channels, encoding: URLEncoding.default, headers: headers)
             .serializingData().response
         if let authError = authenticationFailureError(
             statusCode: response.response?.statusCode,
-            data: response.data
+            data: response.data,
+            expectedRevision: authRevision
         ) {
             throw authError
         }
@@ -1486,6 +1540,7 @@ final class DiscourseAPI {
     private func request<T: Decodable>(route: DiscourseRouter, parameters: Parameters? = nil, encoding: ParameterEncoding? = nil, headers: HTTPHeaders? = nil) async throws -> T {
         let url = baseURL + route.path
         let resolvedEncoding = encoding ?? (route.method == .post ? JSONEncoding.default : URLEncoding.default)
+        let authRevision = AuthManager.shared.authenticationRevision(for: baseURL)
         let response = await session.request(url, method: route.method, parameters: parameters, encoding: resolvedEncoding, headers: headers)
             .serializingDecodable(T.self)
             .response
@@ -1521,7 +1576,8 @@ final class DiscourseAPI {
 
         if let authError = authenticationFailureError(
             statusCode: response.response?.statusCode,
-            data: response.data
+            data: response.data,
+            expectedRevision: authRevision
         ) {
             throw authError
         }
@@ -1552,19 +1608,31 @@ final class DiscourseAPI {
 
     private func authenticationFailureError(
         statusCode: Int?,
-        data: Data?
+        data: Data?,
+        expectedRevision: Int
     ) -> DiscourseAPIError? {
         guard isDiscourseAuthenticationFailure(statusCode: statusCode, data: data) else {
             return nil
         }
-        PushSubscriptionCoordinator(api: self).retireLocalSubscriptions()
-        AuthManager.shared.invalidateExpiredAuthentication(for: baseURL)
+        expireAuthentication(expectedRevision: expectedRevision)
         let messages = data
             .flatMap { try? JSONDecoder().decode(DiscourseErrorResponse.self, from: $0) }
             .map(\.errors)
             .flatMap { $0.isEmpty ? nil : $0 }
             ?? ["Session expired, please log in again"]
         return DiscourseAPIError(messages: messages, errorType: "not_logged_in")
+    }
+
+    private func expireAuthentication(expectedRevision: Int) {
+        let auth = AuthManager.shared
+        guard auth.isAuthenticated(for: baseURL),
+              auth.authenticationRevision(for: baseURL) == expectedRevision
+        else { return }
+        PushSubscriptionCoordinator(api: self).retireLocalSubscriptions()
+        auth.invalidateExpiredAuthentication(
+            for: baseURL,
+            expectedRevision: expectedRevision
+        )
     }
 }
 
@@ -1587,6 +1655,50 @@ func isDiscourseAuthenticationFailure(statusCode: Int?, data: Data?) -> Bool {
           let response = try? JSONDecoder().decode(DiscourseErrorResponse.self, from: data)
     else { return false }
     return response.errorType == "not_logged_in"
+}
+
+enum AuthenticationProbeResult: Equatable {
+    case authenticated
+    case expired
+    case inconclusive
+}
+
+/// The public feed is intentionally not considered evidence of a valid login.
+/// Only explicit auth failures or the authenticated endpoint's guest shape
+/// can expire a saved credential.
+func assessAuthenticationProbe(
+    isLinuxDo: Bool,
+    statusCode: Int?,
+    data: Data?,
+    finalURL: URL?
+) -> AuthenticationProbeResult {
+    if isDiscourseAuthenticationFailure(statusCode: statusCode, data: data) {
+        return .expired
+    }
+    guard let statusCode, (200 ..< 300).contains(statusCode) else {
+        return .inconclusive
+    }
+    if finalURL?.lastPathComponent == "login" { return .expired }
+    guard let data,
+          let object = try? JSONSerialization.jsonObject(with: data),
+          let payload = object as? [String: Any]
+    else { return .inconclusive }
+
+    if isLinuxDo {
+        guard payload["notifications"] is [Any],
+              let moreURL = payload["load_more_notifications"] as? String,
+              let components = URLComponents(string: moreURL)
+        else { return .inconclusive }
+        let username = components.queryItems?
+            .first(where: { $0.name == "username" })?.value
+        return username?.isEmpty == false ? .authenticated : .expired
+    }
+
+    if payload["current_user"] is NSNull { return .expired }
+    if let current = payload["current_user"] as? [String: Any],
+       let username = current["username"] as? String,
+       !username.isEmpty { return .authenticated }
+    return .inconclusive
 }
 
 private struct UploadErrorResponse: Decodable {

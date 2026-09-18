@@ -375,6 +375,7 @@ final class HomeViewController: ObservableViewController {
     }
 
     @objc private func pullToRefresh() {
+        authGate?.verifyAuthenticationIfNeeded()
         Task {
             await viewModel.loadTopics()
             refreshControl.endRefreshing()

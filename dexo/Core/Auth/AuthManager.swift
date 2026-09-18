@@ -8,6 +8,7 @@ final class AuthManager: @unchecked Sendable {
 
     // Per-baseURL username cache (populated from DB or after login)
     private var usernameCache: [String: String] = [:]
+    private var authenticationRevisions: [String: Int] = [:]
 
     private init() {}
 
@@ -22,6 +23,19 @@ final class AuthManager: @unchecked Sendable {
             return .anonymous
         }
         return credential == Self.webAuthSentinel ? .webSession : .userAPIKey
+    }
+
+    func authenticationRevision(for baseURL: String) -> Int {
+        let normalized = baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        return authenticationRevisions[normalized, default: 0]
+    }
+
+    func hasUsableWebSession(for baseURL: String) -> Bool {
+        guard let url = URL(string: baseURL)?
+            .appendingPathComponent("session")
+            .appendingPathComponent("current.json")
+        else { return false }
+        return WebCookieStore.shared.cookies(for: url).contains { $0.name == "_t" }
     }
 
     func username(for baseURL: String) -> String? {
@@ -175,6 +189,10 @@ final class AuthManager: @unchecked Sendable {
             KeychainHelper.deleteRSAKeyPair(for: baseURL)
             throw error
         }
+        // Credential persistence happens before the identity lookup below.
+        // Invalidate old in-flight responses immediately at this boundary.
+        authenticationRevisions[baseURL, default: 0] += 1
+        let loginRevision = authenticationRevision(for: baseURL)
         // The new credential may belong to another account. Do not let an
         // identity fetch failure fall back to the previous account name.
         usernameCache.removeValue(forKey: baseURL)
@@ -197,10 +215,21 @@ final class AuthManager: @unchecked Sendable {
         KeychainHelper.deleteRSAKeyPair(for: baseURL)
 
         // 9. Fetch current user to get username
-        if let username = await fetchAndCacheUsername(baseURL: baseURL, forum: forum) {
+        let username = await fetchAndCacheUsername(
+            baseURL: baseURL,
+            forum: forum,
+            expectedRevision: loginRevision
+        )
+        guard authenticationRevision(for: baseURL) == loginRevision,
+              KeychainHelper.getUserApiKey(for: baseURL) == authPayload.key
+        else { throw AuthError.unknownError }
+        if let username {
             await PushSubscriptionCoordinator(api: DiscourseAPI(forum: forum))
                 .rotateSubscriptionsAfterLogin(username: username)
         }
+        guard authenticationRevision(for: baseURL) == loginRevision,
+              KeychainHelper.getUserApiKey(for: baseURL) == authPayload.key
+        else { throw AuthError.unknownError }
         postAuthChange(for: baseURL)
     }
 
@@ -239,6 +268,8 @@ final class AuthManager: @unchecked Sendable {
         // Persist the new auth marker before touching either the previous API
         // key or the previous web session.
         try KeychainHelper.saveUserApiKey(AuthManager.webAuthSentinel, for: baseURL)
+        authenticationRevisions[baseURL, default: 0] += 1
+        let loginRevision = authenticationRevision(for: baseURL)
         usernameCache.removeValue(forKey: baseURL)
 
         if let previousCredential, previousCredential != AuthManager.webAuthSentinel {
@@ -259,12 +290,24 @@ final class AuthManager: @unchecked Sendable {
             cacheUsername(pageUsername, baseURL: baseURL, forum: forum)
             username = pageUsername
         } else {
-            username = await fetchAndCacheUsername(baseURL: baseURL, forum: forum)
+            username = await fetchAndCacheUsername(
+                baseURL: baseURL,
+                forum: forum,
+                expectedRevision: loginRevision
+            )
         }
+        guard authenticationRevision(for: baseURL) == loginRevision,
+              KeychainHelper.getUserApiKey(for: baseURL) == Self.webAuthSentinel,
+              hasUsableWebSession(for: baseURL)
+        else { throw AuthError.unknownError }
         if let username {
             await PushSubscriptionCoordinator(api: DiscourseAPI(forum: forum))
                 .rotateSubscriptionsAfterLogin(username: username)
         }
+        guard authenticationRevision(for: baseURL) == loginRevision,
+              KeychainHelper.getUserApiKey(for: baseURL) == Self.webAuthSentinel,
+              hasUsableWebSession(for: baseURL)
+        else { throw AuthError.unknownError }
         postAuthChange(for: baseURL)
     }
 
@@ -272,7 +315,11 @@ final class AuthManager: @unchecked Sendable {
 
     /// Fetches the current user's username via `/session/current.json`, falling back to `/notifications.json`.
     /// For linux.do, skip `/session/current.json` and go straight to `/notifications.json`.
-    private func fetchAndCacheUsername(baseURL: String, forum: ForumInstance) async -> String? {
+    private func fetchAndCacheUsername(
+        baseURL: String,
+        forum: ForumInstance,
+        expectedRevision: Int
+    ) async -> String? {
         let api = DiscourseAPI(baseURL: baseURL)
         var username: String?
 
@@ -288,7 +335,9 @@ final class AuthManager: @unchecked Sendable {
             username = notifList.username
         }
 
-        guard let username else { return nil }
+        guard let username,
+              authenticationRevision(for: baseURL) == expectedRevision
+        else { return nil }
         cacheUsername(username, baseURL: baseURL, forum: forum)
         return username
     }
@@ -396,19 +445,26 @@ final class AuthManager: @unchecked Sendable {
     /// Clears a credential that the forum has explicitly rejected. Unlike a
     /// user-initiated logout, this never attempts to revoke the already-invalid
     /// server credential.
-    func invalidateExpiredAuthentication(for baseURL: String) {
+    func invalidateExpiredAuthentication(
+        for baseURL: String,
+        expectedRevision: Int? = nil
+    ) {
         let normalized = baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        if let expectedRevision,
+           authenticationRevision(for: normalized) != expectedRevision { return }
         guard KeychainHelper.getUserApiKey(for: normalized) != nil else { return }
 
         clearLocalAuthentication(for: normalized)
 
-        guard var forum = (try? DatabaseManager.shared.fetchAllForums())?
+        if var forum = (try? DatabaseManager.shared.fetchAllForums())?
             .first(where: {
                 $0.baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/")) == normalized
             })
-        else { return }
-        forum.username = nil
-        _ = try? DatabaseManager.shared.saveForum(&forum)
+        {
+            forum.username = nil
+            _ = try? DatabaseManager.shared.saveForum(&forum)
+        }
+        AuthenticationExpiryCoordinator.shared.report(for: normalized)
     }
 
     func restoreAuthState(for forum: ForumInstance) {
@@ -419,6 +475,9 @@ final class AuthManager: @unchecked Sendable {
     }
 
     private func postAuthChange(for baseURL: String) {
+        let normalized = baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        authenticationRevisions[normalized, default: 0] += 1
+        AuthenticationExpiryCoordinator.shared.clear(for: normalized)
         CloudflareChallengeCoordinator.shared.clearAll(for: baseURL)
         NotificationCenter.default.post(
             name: .discourseAuthDidChange,

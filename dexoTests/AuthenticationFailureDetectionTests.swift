@@ -125,4 +125,46 @@ final class AuthenticationFailureDetectionTests: XCTestCase {
             )
         )
     }
+
+    func testCurrentUserProbeIdentifiesGuestButNotMalformedResponse() {
+        XCTAssertEqual(assessAuthenticationProbe(
+            isLinuxDo: false, statusCode: 200,
+            data: Data(#"{"current_user":null}"#.utf8), finalURL: nil
+        ), .expired)
+        XCTAssertEqual(assessAuthenticationProbe(
+            isLinuxDo: false, statusCode: 200,
+            data: Data(#"{"current_user":{"username":"alice"}}"#.utf8), finalURL: nil
+        ), .authenticated)
+        XCTAssertEqual(assessAuthenticationProbe(
+            isLinuxDo: false, statusCode: 200,
+            data: Data("<html>temporary error</html>".utf8), finalURL: nil
+        ), .inconclusive)
+    }
+
+    func testLinuxDoProbeUsesAuthenticatedNotificationIdentity() {
+        XCTAssertEqual(assessAuthenticationProbe(
+            isLinuxDo: true, statusCode: 200,
+            data: Data(#"{"notifications":[],"load_more_notifications":"/notifications?username=alice"}"#.utf8),
+            finalURL: nil
+        ), .authenticated)
+        XCTAssertEqual(assessAuthenticationProbe(
+            isLinuxDo: true, statusCode: 200,
+            data: Data(#"{"notifications":[],"load_more_notifications":"/notifications"}"#.utf8),
+            finalURL: nil
+        ), .expired)
+    }
+
+    func testProbeIgnoresOrdinaryForbiddenAndNetworkFailure() {
+        XCTAssertEqual(assessAuthenticationProbe(
+            isLinuxDo: false, statusCode: 403,
+            data: Data(#"{"errors":["Forbidden"],"error_type":"invalid_access"}"#.utf8),
+            finalURL: nil
+        ), .inconclusive)
+        XCTAssertEqual(assessAuthenticationProbe(
+            isLinuxDo: false, statusCode: nil, data: nil, finalURL: nil
+        ), .inconclusive)
+        XCTAssertEqual(assessAuthenticationProbe(
+            isLinuxDo: false, statusCode: 401, data: nil, finalURL: nil
+        ), .expired)
+    }
 }

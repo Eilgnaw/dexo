@@ -1,10 +1,11 @@
 import UIKit
 
-/// A non-modal, draggable affordance shown while linux.do work is paused for
-/// Cloudflare verification. The system menu keeps every relevant choice
-/// anchored to the button without interrupting the current reading context.
+/// A non-modal, draggable affordance for forum attention states. The menu
+/// keeps login recovery and Cloudflare actions in one place when both apply.
 final class CloudflareChallengeIndicatorView: UIButton {
     enum Action: Equatable {
+        case relogin
+        case ignoreAuthentication
         case openChallenge
         case disableReporting
         case ignoreGeneralRequest
@@ -22,6 +23,7 @@ final class CloudflareChallengeIndicatorView: UIButton {
     private var hasBeenPlaced = false
     private var hasAnimatedAppearance = false
     private(set) var reasons: CloudflareChallengeReason = []
+    private(set) var authenticationExpired = false
 
     init(onAction: @escaping (Action) -> Void) {
         self.onAction = onAction
@@ -114,24 +116,63 @@ final class CloudflareChallengeIndicatorView: UIButton {
         isHidden = true
     }
 
-    func configure(reasons: CloudflareChallengeReason) {
-        guard reasons != self.reasons || menu == nil else { return }
+    func configure(
+        reasons: CloudflareChallengeReason,
+        authenticationExpired: Bool = false
+    ) {
+        guard reasons != self.reasons
+                || authenticationExpired != self.authenticationExpired
+                || menu == nil else { return }
         self.reasons = reasons
+        self.authenticationExpired = authenticationExpired
         let hasGeneralRequest = reasons.contains(.generalRequest)
-        let title = hasGeneralRequest
-            ? String(localized: "cloudflare.challenge.title")
-            : String(localized: "settings.read_timings.challenge.title")
+        let title = authenticationExpired
+            ? String(localized: "auth.expired.title")
+            : hasGeneralRequest
+                ? String(localized: "cloudflare.challenge.title")
+                : String(localized: "settings.read_timings.challenge.title")
         accessibilityLabel = title
-        accessibilityValue = String(localized: "settings.read_timings.status.verification_required")
+        accessibilityValue = authenticationExpired
+            ? String(localized: "auth.expired.title")
+            : String(localized: "settings.read_timings.status.verification_required")
+        accessibilityHint = authenticationExpired
+            ? String(localized: "auth.expired.indicator.hint")
+            : String(localized: "cloudflare.challenge.indicator.hint")
+        accessibilityIdentifier = authenticationExpired
+            ? "authentication.expiry.indicator"
+            : "cloudflare.challenge.indicator"
 
-        var actions: [UIMenuElement] = [
-            UIAction(
+        var buttonConfiguration = configuration
+        let symbol = authenticationExpired
+            ? "person.crop.circle.badge.exclamationmark"
+            : "exclamationmark.shield.fill"
+        let symbolConfiguration = UIImage.SymbolConfiguration(pointSize: 19, weight: .semibold)
+        buttonConfiguration?.image = UIImage(
+            systemName: symbol,
+            withConfiguration: symbolConfiguration
+        ) ?? UIImage(
+            systemName: authenticationExpired ? "person.crop.circle.badge.xmark" : "shield.fill",
+            withConfiguration: symbolConfiguration
+        )
+        configuration = buttonConfiguration
+
+        var actions: [UIMenuElement] = []
+        if authenticationExpired {
+            actions.append(UIAction(
+                title: String(localized: "auth.expired.relogin"),
+                image: UIImage(systemName: "person.crop.circle.badge.checkmark")
+            ) { [weak self] _ in
+                self?.perform(.relogin)
+            })
+        }
+        if !reasons.isEmpty {
+            actions.append(UIAction(
                 title: String(localized: "cloudflare.challenge.open"),
                 image: UIImage(systemName: "shield.lefthalf.filled")
             ) { [weak self] _ in
                 self?.perform(.openChallenge)
-            },
-        ]
+            })
+        }
         if reasons.contains(.readTiming) {
             actions.append(UIAction(
                 title: String(localized: "cloudflare.challenge.disable_read_timing"),
@@ -147,6 +188,14 @@ final class CloudflareChallengeIndicatorView: UIButton {
                 image: UIImage(systemName: "eye.slash")
             ) { [weak self] _ in
                 self?.perform(.ignoreGeneralRequest)
+            })
+        }
+        if authenticationExpired {
+            actions.append(UIAction(
+                title: String(localized: "auth.expired.ignore"),
+                image: UIImage(systemName: "eye.slash")
+            ) { [weak self] _ in
+                self?.perform(.ignoreAuthentication)
             })
         }
         menu = UIMenu(title: title, options: .displayInline, children: actions)
@@ -312,9 +361,12 @@ final class CloudflareChallengeIndicatorView: UIButton {
 /// View controllers only supply their active base URL and movement bounds.
 final class CloudflareChallengeIndicatorHost {
     private let coordinator: CloudflareChallengeCoordinator
+    private let authenticationExpiryCoordinator: AuthenticationExpiryCoordinator?
     private let baseURLProvider: () -> String?
     private let presenterProvider: () -> UIViewController?
+    private let onRelogin: (() -> Void)?
     private var stateObserver: (any NSObjectProtocol)?
+    private var authenticationObserver: (any NSObjectProtocol)?
 
     private(set) lazy var indicator = CloudflareChallengeIndicatorView {
         [weak self] action in
@@ -323,12 +375,16 @@ final class CloudflareChallengeIndicatorHost {
 
     init(
         coordinator: CloudflareChallengeCoordinator = .shared,
+        authenticationExpiryCoordinator: AuthenticationExpiryCoordinator? = nil,
         baseURLProvider: @escaping () -> String?,
-        presenterProvider: @escaping () -> UIViewController?
+        presenterProvider: @escaping () -> UIViewController?,
+        onRelogin: (() -> Void)? = nil
     ) {
         self.coordinator = coordinator
+        self.authenticationExpiryCoordinator = authenticationExpiryCoordinator
         self.baseURLProvider = baseURLProvider
         self.presenterProvider = presenterProvider
+        self.onRelogin = onRelogin
         stateObserver = NotificationCenter.default.addObserver(
             forName: .cloudflareChallengeStateDidChange,
             object: coordinator,
@@ -338,11 +394,25 @@ final class CloudflareChallengeIndicatorHost {
                 self?.refresh(animated: true)
             }
         }
+        if let authenticationExpiryCoordinator {
+            authenticationObserver = NotificationCenter.default.addObserver(
+                forName: .authenticationExpiryStateDidChange,
+                object: authenticationExpiryCoordinator,
+                queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.refresh(animated: true)
+                }
+            }
+        }
     }
 
     deinit {
         if let stateObserver {
             NotificationCenter.default.removeObserver(stateObserver)
+        }
+        if let authenticationObserver {
+            NotificationCenter.default.removeObserver(authenticationObserver)
         }
     }
 
@@ -355,9 +425,15 @@ final class CloudflareChallengeIndicatorHost {
 
     func refresh(animated: Bool) {
         let reasons = baseURLProvider().map { coordinator.reasons(for: $0) } ?? []
-        indicator.configure(reasons: reasons)
+        let authenticationExpired = baseURLProvider().map {
+            authenticationExpiryCoordinator?.isPending(for: $0) ?? false
+        } ?? false
+        indicator.configure(
+            reasons: reasons,
+            authenticationExpired: authenticationExpired
+        )
         indicator.configureTheme()
-        indicator.setPresented(!reasons.isEmpty, animated: animated)
+        indicator.setPresented(!reasons.isEmpty || authenticationExpired, animated: animated)
     }
 
     func updatePlacement(in availableBounds: CGRect) {
@@ -367,6 +443,14 @@ final class CloudflareChallengeIndicatorHost {
     private func handle(_ action: CloudflareChallengeIndicatorView.Action) {
         guard let baseURL = baseURLProvider() else { return }
         switch action {
+        case .relogin:
+            DispatchQueue.main.async { [weak self] in
+                self?.onRelogin?()
+            }
+
+        case .ignoreAuthentication:
+            authenticationExpiryCoordinator?.clear(for: baseURL)
+
         case .openChallenge:
             guard coordinator.requiresVerification(for: baseURL) else { return }
             DispatchQueue.main.async { [weak self] in

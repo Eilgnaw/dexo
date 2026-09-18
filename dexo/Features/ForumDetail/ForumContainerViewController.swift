@@ -20,10 +20,14 @@ final class ForumContainerViewController: BaseViewController, AuthGating {
     private var pendingPushRegistrationError: Error?
     private var isRegisteringPush = false
     private var pendingPushDestination: PendingPushDestination?
+    private var authenticationValidationTask: Task<Void, Never>?
+    private var authenticationValidationGeneration = 0
 
     private lazy var challengeIndicatorHost = CloudflareChallengeIndicatorHost(
+        authenticationExpiryCoordinator: .shared,
         baseURLProvider: { [weak self] in self?.api.baseURL },
-        presenterProvider: { [weak self] in self }
+        presenterProvider: { [weak self] in self },
+        onRelogin: { [weak self] in self?.requireAuth {} }
     )
 
     private let pushRegistrationLoadingIndicator: UIActivityIndicatorView = {
@@ -187,6 +191,12 @@ final class ForumContainerViewController: BaseViewController, AuthGating {
             name: UIApplication.didBecomeActiveNotification,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(applicationDidBecomeActive),
+            name: UIApplication.didBecomeActiveNotification,
+            object: nil
+        )
     }
 
     @objc private func forumAuthenticationDidChange(_ notification: Notification) {
@@ -196,6 +206,10 @@ final class ForumContainerViewController: BaseViewController, AuthGating {
             in: CharacterSet(charactersIn: "/")
         )
         guard changedBaseURL == currentBaseURL else { return }
+
+        authenticationValidationGeneration += 1
+        authenticationValidationTask?.cancel()
+        authenticationValidationTask = nil
 
         if isAuthenticated() {
             if notificationPoller == nil {
@@ -213,6 +227,11 @@ final class ForumContainerViewController: BaseViewController, AuthGating {
         openPendingPushDestinationIfPossible()
         challengeIndicatorHost.refresh(animated: true)
         presentPendingAlertsIfPossible()
+        verifyAuthenticationIfNeeded()
+    }
+
+    @objc private func applicationDidBecomeActive() {
+        verifyAuthenticationIfNeeded()
     }
 
     override func viewDidLayoutSubviews() {
@@ -621,6 +640,19 @@ final class ForumContainerViewController: BaseViewController, AuthGating {
     }
 
     // MARK: - AuthGating
+
+    func verifyAuthenticationIfNeeded() {
+        guard isAuthenticated(), authenticationValidationTask == nil else { return }
+        authenticationValidationGeneration += 1
+        let generation = authenticationValidationGeneration
+        authenticationValidationTask = Task { [weak self] in
+            guard let self else { return }
+            await self.api.verifyAuthentication()
+            if self.authenticationValidationGeneration == generation {
+                self.authenticationValidationTask = nil
+            }
+        }
+    }
 
     func requireAuth(then action: @escaping () -> Void) {
         let baseURL = forum.baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))

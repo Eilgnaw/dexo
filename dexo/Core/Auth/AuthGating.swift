@@ -5,4 +5,9 @@ protocol AuthGating: AnyObject {
     func isAuthenticated() -> Bool
     func currentUsername() -> String?
     func performLogout()
+    func verifyAuthenticationIfNeeded()
+}
+
+extension AuthGating {
+    func verifyAuthenticationIfNeeded() {}
 }

@@ -1,3 +1,8 @@
+Login Expiry Reminder
+
+- Revoke an API key or expire a web session, then reopen or refresh a public forum. Topics stay readable; a draggable login badge appears across tabs and after relaunch.
+- Tap for either login method; login or Ignore clears it. Guests/manual logout show no badge. If Cloudflare is pending, one menu offers both actions.
+
 SVG Image Stability
 
 - On iOS 17, especially 17.5.1, open a forum that uses SVG icons, avatars, or custom emoji. Cold-launch the app several times, switch forums, and scroll topics containing these images. The app should not crash while images load or prefetch.
