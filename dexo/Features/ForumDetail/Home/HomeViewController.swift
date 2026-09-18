@@ -112,7 +112,19 @@ final class HomeViewController: ObservableViewController {
 
     private let composeButtonSize: CGFloat = 56
     private let composeButtonEdgeMargin: CGFloat = 20
+    private let composeEdgeTouchWidth: CGFloat = 44
+    private let composeEdgeTouchHeight: CGFloat = 68
+    private let composeEdgeVisibleWidth: CGFloat = 9
+    private let composeEdgeVisibleHeight: CGFloat = 60
     private var composeDragDistance: CGFloat = 0
+    private var composeScrollStartOffset: CGFloat?
+    private var isComposeCollapsed = false
+
+    private enum ComposeEdge: Equatable {
+        case left, right
+    }
+
+    private var composeEdge: ComposeEdge = .right
 
     private lazy var composeButton: UIButton = {
         let button = UIButton(type: .system)
@@ -127,10 +139,30 @@ final class HomeViewController: ObservableViewController {
         button.layer.shadowRadius = 4
         button.addTarget(self, action: #selector(composeButtonTouchDown), for: .touchDown)
         button.addTarget(self, action: #selector(composeTapped), for: .touchUpInside)
+        button.accessibilityLabel = String(localized: "home.compose.action")
+        button.accessibilityIdentifier = "home.compose.button"
 
         let pan = UIPanGestureRecognizer(target: self, action: #selector(handleComposePan(_:)))
         button.addGestureRecognizer(pan)
 
+        return button
+    }()
+
+    private let composeEdgeStrip: UIView = {
+        let strip = UIView()
+        strip.isUserInteractionEnabled = false
+        strip.layer.cornerRadius = 6
+        strip.layer.masksToBounds = true
+        return strip
+    }()
+
+    private lazy var composeEdgeButton: UIButton = {
+        let button = UIButton(type: .custom)
+        button.isHidden = true
+        button.accessibilityLabel = String(localized: "home.compose.expand")
+        button.accessibilityIdentifier = "home.compose.expand"
+        button.addTarget(self, action: #selector(expandComposeButton), for: .touchUpInside)
+        button.addSubview(composeEdgeStrip)
         return button
     }()
 
@@ -170,6 +202,7 @@ final class HomeViewController: ObservableViewController {
                 y: safe.maxY - composeButtonEdgeMargin - composeButtonSize / 2
             )
         }
+        layoutComposeEdgeButton()
 
         if tableView.tableHeaderView === pinnedBar,
            pinnedBar.frame.width != tableView.bounds.width {
@@ -246,6 +279,7 @@ final class HomeViewController: ObservableViewController {
 
         view.addSubview(composeButton)
         composeButton.frame = CGRect(x: 0, y: 0, width: composeButtonSize, height: composeButtonSize)
+        view.addSubview(composeEdgeButton)
 
         Task {
             await viewModel.loadTopics()
@@ -294,6 +328,7 @@ final class HomeViewController: ObservableViewController {
         tableView.isHidden = false
         navigationItem.rightBarButtonItems = inheritedRightBarItems + [Self.makeRightBarSpacer(), sortBarButton]
         composeButton.backgroundColor = ThemeManager.shared.accentColor
+        composeEdgeStrip.backgroundColor = ThemeManager.shared.floatingEdgeHandleColor
         categoryBarButton.menu = UIMenu(title: "", children: buildCategoryMenuElements())
         sortBarButton.menu = buildSortMenu()
         updateCategoryButton()
@@ -414,6 +449,7 @@ final class HomeViewController: ObservableViewController {
         } else {
             goRight = center.x > view.bounds.midX
         }
+        composeEdge = goRight ? .right : .left
 
         let targetX = goRight
             ? safe.maxX - margin - half
@@ -430,6 +466,109 @@ final class HomeViewController: ObservableViewController {
             options: .curveEaseOut
         ) {
             self.composeButton.center = CGPoint(x: targetX, y: targetY)
+        }
+    }
+
+    private func layoutComposeEdgeButton() {
+        guard hasPlacedComposeButton else { return }
+        let safe = view.safeAreaLayoutGuide.layoutFrame
+        let half = composeButtonSize / 2
+        let minimumY = safe.minY + half + composeButtonEdgeMargin
+        let maximumY = max(minimumY, safe.maxY - half - composeButtonEdgeMargin)
+        let y = min(max(composeButton.center.y, minimumY), maximumY)
+        if isComposeCollapsed {
+            composeButton.center.y = y
+        }
+        let x = composeEdge == .right
+            ? safe.maxX - composeEdgeTouchWidth : safe.minX
+        composeEdgeButton.frame = CGRect(
+            x: x,
+            y: y - composeEdgeTouchHeight / 2,
+            width: composeEdgeTouchWidth,
+            height: composeEdgeTouchHeight
+        )
+        composeEdgeStrip.frame = CGRect(
+            x: composeEdge == .right
+                ? composeEdgeTouchWidth - composeEdgeVisibleWidth : 0,
+            y: (composeEdgeTouchHeight - composeEdgeVisibleHeight) / 2,
+            width: composeEdgeVisibleWidth,
+            height: composeEdgeVisibleHeight
+        )
+        composeEdgeStrip.layer.maskedCorners = composeEdge == .right
+            ? [.layerMinXMinYCorner, .layerMinXMaxYCorner]
+            : [.layerMaxXMinYCorner, .layerMaxXMaxYCorner]
+    }
+
+    private func collapseComposeButton() {
+        guard !isComposeCollapsed else { return }
+        isComposeCollapsed = true
+        composeEdge = composeButton.center.x >= view.bounds.midX ? .right : .left
+        layoutComposeEdgeButton()
+        composeEdgeButton.alpha = 0
+        composeEdgeButton.isHidden = false
+        composeButton.isUserInteractionEnabled = false
+        guard !UIAccessibility.isReduceMotionEnabled else {
+            composeButton.isHidden = true
+            composeButton.alpha = 1
+            composeButton.transform = .identity
+            composeEdgeButton.alpha = 1
+            return
+        }
+        UIView.animate(
+            withDuration: 0.22,
+            delay: 0,
+            options: [.beginFromCurrentState, .allowUserInteraction]
+        ) {
+            self.composeButton.alpha = 0
+            self.composeButton.transform = CGAffineTransform(
+                translationX: self.composeEdge == .right
+                    ? self.composeButtonSize : -self.composeButtonSize,
+                y: 0
+            )
+            self.composeEdgeButton.alpha = 1
+        } completion: { _ in
+            guard self.isComposeCollapsed else { return }
+            self.composeButton.isHidden = true
+            self.composeButton.alpha = 1
+            self.composeButton.transform = .identity
+        }
+    }
+
+    @objc private func expandComposeButton() {
+        guard isComposeCollapsed else { return }
+        isComposeCollapsed = false
+        composeScrollStartOffset = nil
+        let safe = view.safeAreaLayoutGuide.layoutFrame
+        let half = composeButtonSize / 2
+        composeButton.center.x = composeEdge == .right
+            ? safe.maxX - composeButtonEdgeMargin - half
+            : safe.minX + composeButtonEdgeMargin + half
+        composeButton.isHidden = false
+        composeButton.isUserInteractionEnabled = true
+        guard !UIAccessibility.isReduceMotionEnabled else {
+            composeEdgeButton.isHidden = true
+            composeEdgeButton.alpha = 1
+            composeButton.alpha = 1
+            composeButton.transform = .identity
+            return
+        }
+        composeButton.alpha = 0
+        composeButton.transform = CGAffineTransform(
+            translationX: composeEdge == .right ? composeButtonSize : -composeButtonSize,
+            y: 0
+        )
+        UIView.animate(
+            withDuration: 0.22,
+            delay: 0,
+            options: [.beginFromCurrentState, .allowUserInteraction]
+        ) {
+            self.composeButton.alpha = 1
+            self.composeButton.transform = .identity
+            self.composeEdgeButton.alpha = 0
+        } completion: { _ in
+            guard !self.isComposeCollapsed else { return }
+            self.composeEdgeButton.isHidden = true
+            self.composeEdgeButton.alpha = 1
         }
     }
 
@@ -586,6 +725,22 @@ final class HomeViewController: ObservableViewController {
 extension HomeViewController: UITableViewDelegate {
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
         shouldRefreshOnNextHomeTabTap = false
+        guard scrollView === tableView, !isComposeCollapsed else { return }
+        composeScrollStartOffset = scrollView.contentOffset.y
+    }
+
+    func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        guard scrollView === tableView,
+              scrollView.isDragging,
+              let startOffset = composeScrollStartOffset,
+              abs(scrollView.contentOffset.y - startOffset) >= 12
+        else { return }
+        composeScrollStartOffset = nil
+        collapseComposeButton()
+    }
+
+    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+        if scrollView === tableView { composeScrollStartOffset = nil }
     }
 
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {

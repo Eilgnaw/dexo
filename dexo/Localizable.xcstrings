@@ -2477,6 +2477,38 @@
         }
       }
     },
+    "home.compose.action" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "New topic"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "发帖"
+          }
+        }
+      }
+    },
+    "home.compose.expand" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show new topic button"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "展开发帖按钮"
+          }
+        }
+      }
+    },
     "home.created" : {
       "localizations" : {
         "en" : {

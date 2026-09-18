@@ -199,6 +199,15 @@ final class ThemeManager {
         return color
     }
 
+    /// Quiet, neutral handle for controls parked at a screen edge.
+    var floatingEdgeHandleColor: UIColor {
+        UIColor { traits in
+            traits.userInterfaceStyle == .dark
+                ? UIColor(white: 1, alpha: 0.23)
+                : UIColor(white: 0, alpha: 0.24)
+        }
+    }
+
     /// Page background (replaces systemGroupedBackground)
     var backgroundColor: UIColor {
         _ = revision

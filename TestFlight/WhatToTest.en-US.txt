@@ -3,11 +3,16 @@ Login Expiry Reminder
 - Revoke an API key or expire a web session, then reopen or refresh a public forum. Topics stay readable; a draggable login badge appears across tabs and after relaunch.
 - Tap for either login method; login or Ignore clears it. Guests/manual logout show no badge. If Cloudflare is pending, one menu offers both actions.
 
+New Topic Button
+
+- Open a forum: the full new-topic button appears. Scroll Home; it retracts to a slim, translucent neutral tab at the screen edge and stays there when scrolling stops.
+- Tap the tab to restore the button, then tap it to compose. Drag the full button left and repeat. Check light/dark mode and that the feed stays readable.
+
 SVG Image Stability
 
-- On iOS 17, especially 17.5.1, open a forum that uses SVG icons, avatars, or custom emoji. Cold-launch the app several times, switch forums, and scroll topics containing these images. The app should not crash while images load or prefetch.
-- Open an SVG image from a post in the full-screen browser and save it. Check that it appears sharp and keeps its aspect ratio. Repeat after clearing the image cache and after upgrading from build 110.
-- If a forum uses an SVG icon, launch the app with notifications enabled and confirm its notification icon is prepared without a crash.
+- On iOS 17/17.5.1, cold-launch and switch SVG-heavy forums; scroll posts with SVG icons, avatars, and emoji. Loading and prefetch must not crash.
+- Open and save a post SVG in the full-screen viewer; confirm sharpness and aspect ratio. Repeat after clearing the cache and upgrading from build 110.
+- With notifications enabled, launch a forum with an SVG icon; no crash.
 
 Unified Cloudflare Verification
 
@@ -17,8 +22,7 @@ Unified Cloudflare Verification
 
 Category Filter Button
 
-- On a forum's topic list, confirm the top-left category filter is icon-only and has no selected appearance while "All Categories" is active.
-- Select a category and confirm the same icon shows the system selected appearance. Reopen the menu, choose "All Categories," and confirm the selected appearance is removed.
+- The top-left category filter is icon-only: "All Categories" is unselected, a chosen category is selected, and switching back clears the selection.
 
 First Launch and Default Forum
 
