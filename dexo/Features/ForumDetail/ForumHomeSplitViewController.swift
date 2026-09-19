@@ -24,12 +24,24 @@ final class ForumHomeSplitViewController: UISplitViewController, UISplitViewCont
     private lazy var sidebarNavigationController = ForumPaneNavigationController()
     private var topicStack: [UIViewController] = []
     private var compactLayout = false
-    private var showingCompactSidebar = false
     private var changingColumns = false
     private var lastPaneFrame: CGRect = .null
     private var lastNavigationFrame: CGRect = .null
+    private var lastPortraitPresentation: Bool?
 
-    private var needsSidebarButton: Bool { compactLayout }
+    private var needsCategoryMenu: Bool { compactLayout || hidesCategoriesInPortrait }
+
+    private var hidesCategoriesInPortrait: Bool {
+        // An unfolded phone can have a regular-width, portrait-shaped window.
+        let size = view.bounds.size
+        if size.width > 0, size.height > 0 {
+            return size.height > size.width
+        }
+        let windowSize = view.window?.bounds.size
+            ?? view.window?.screen.bounds.size
+            ?? UIScreen.main.bounds.size
+        return windowSize.height > windowSize.width
+    }
 
     init(forum: ForumInstance, api: DiscourseAPI, authGate: AuthGating?) {
         self.forum = forum
@@ -45,7 +57,7 @@ final class ForumHomeSplitViewController: UISplitViewController, UISplitViewCont
     override func viewDidLoad() {
         super.viewDidLoad()
         delegate = self
-        preferredSplitBehavior = .tile
+        preferredSplitBehavior = hidesCategoriesInPortrait ? .overlay : .tile
         preferredDisplayMode = .oneBesideSecondary
         displayModeButtonVisibility = .never
         primaryBackgroundStyle = .sidebar
@@ -53,12 +65,6 @@ final class ForumHomeSplitViewController: UISplitViewController, UISplitViewCont
 
         sidebarViewController.onSelectCategory = { [weak self] id in self?.selectCategory(id) }
         sidebarViewController.onMinimize = { ForumOverlayManager.shared.minimize() }
-        sidebarViewController.navigationItem.rightBarButtonItem = UIBarButtonItem(
-            title: String(localized: "action.close"),
-            style: .done,
-            target: self,
-            action: #selector(closeForumSidebar)
-        )
         sidebarNavigationController.setNavigationBarHidden(true, animated: false)
         homeViewController.title = String(localized: "tab.home")
         topicStack = [homeViewController]
@@ -66,7 +72,8 @@ final class ForumHomeSplitViewController: UISplitViewController, UISplitViewCont
         compactNavigationController.delegate = self
         setViewController(compactNavigationController, for: .compact)
         compactLayout = traitCollection.horizontalSizeClass == .compact || isCollapsed
-        preferredDisplayMode = compactLayout ? .secondaryOnly : .oneBesideSecondary
+        preferredDisplayMode = compactLayout || hidesCategoriesInPortrait
+            ? .secondaryOnly : .oneBesideSecondary
         renderNavigation()
         updateForCurrentSize()
 
@@ -102,10 +109,21 @@ final class ForumHomeSplitViewController: UISplitViewController, UISplitViewCont
         if shouldCompact != compactLayout {
             storeVisibleStack()
             compactLayout = shouldCompact
-            showingCompactSidebar = false
-            preferredDisplayMode = compactLayout ? .secondaryOnly : .oneBesideSecondary
+            preferredDisplayMode = compactLayout || hidesCategoriesInPortrait
+                ? .secondaryOnly : .oneBesideSecondary
             renderNavigation()
-            updateSidebarButton()
+            updateCategoryMenuButton()
+        }
+        let portrait = hidesCategoriesInPortrait
+        if lastPortraitPresentation != portrait {
+            lastPortraitPresentation = portrait
+            preferredSplitBehavior = portrait ? .overlay : .tile
+            if !compactLayout {
+                preferredDisplayMode = portrait ? .secondaryOnly : .oneBesideSecondary
+                if portrait { hide(.primary) }
+                else { show(.primary) }
+            }
+            updateCategoryMenuButton()
         }
     }
 
@@ -113,7 +131,6 @@ final class ForumHomeSplitViewController: UISplitViewController, UISplitViewCont
         guard !changingColumns else { return }
         let stack: [UIViewController]
         if compactLayout {
-            guard !showingCompactSidebar else { return }
             stack = compactNavigationController.viewControllers
         } else {
             stack = topicNavigationController.viewControllers
@@ -133,25 +150,22 @@ final class ForumHomeSplitViewController: UISplitViewController, UISplitViewCont
         setViewController(nil, for: .secondary)
 
         if compactLayout {
-            compactNavigationController.setViewControllers(
-                showingCompactSidebar ? [sidebarViewController] : topicStack,
-                animated: false
-            )
+            compactNavigationController.setViewControllers(topicStack, animated: false)
             setViewController(compactNavigationController, for: .compact)
         } else {
             sidebarNavigationController.setViewControllers([sidebarViewController], animated: false)
             topicNavigationController.setViewControllers(topicStack, animated: false)
             setViewController(sidebarNavigationController, for: .primary)
             setViewController(topicNavigationController, for: .secondary)
-            preferredDisplayMode = .oneBesideSecondary
+            preferredDisplayMode = hidesCategoriesInPortrait
+                ? .secondaryOnly : .oneBesideSecondary
         }
-        updateSidebarButton()
+        updateCategoryMenuButton()
         view.setNeedsLayout()
     }
 
     func openTopic(topicID: Int, initialFloor: Int?, animated: Bool) {
         topicStack = [homeViewController]
-        showingCompactSidebar = false
         renderNavigation()
         let detail = TopicDetailControllerFactory.make(api: api, topicId: topicID, initialFloor: initialFloor)
         let navigation = compactLayout ? compactNavigationController : topicNavigationController
@@ -160,7 +174,7 @@ final class ForumHomeSplitViewController: UISplitViewController, UISplitViewCont
 
     func scrollToTopOrRefreshIfAtRoot() -> Bool {
         let stack = compactLayout ? compactNavigationController.viewControllers : topicNavigationController.viewControllers
-        guard !showingCompactSidebar, stack.count == 1, stack.first === homeViewController else { return false }
+        guard stack.count == 1, stack.first === homeViewController else { return false }
         homeViewController.scrollToTopOrRefresh()
         return true
     }
@@ -183,41 +197,48 @@ final class ForumHomeSplitViewController: UISplitViewController, UISplitViewCont
 
     private func selectCategory(_ categoryID: Int?) {
         topicStack = [homeViewController]
-        showingCompactSidebar = false
         sidebarViewController.selectedCategoryID = categoryID
         renderNavigation()
         homeViewController.selectCategoryFromSidebar(categoryID)
-        closeSidebar()
+        updateCategoryMenuButton()
     }
 
-    private func makeShowSidebarItem() -> UIBarButtonItem {
+    private func makeCategoryMenuItem() -> UIBarButtonItem {
         let item = UIBarButtonItem(
-            image: UIImage(systemName: "sidebar.left"),
-            style: .plain,
-            target: self,
-            action: #selector(showForumSidebar)
+            image: UIImage(systemName: "line.3.horizontal.decrease"),
+            menu: UIMenu(children: [
+                UIDeferredMenuElement.uncached { [weak self] completion in
+                    guard let self else { completion([]); return }
+                    completion(self.homeViewController.buildCategoryMenuElements { [weak self] id in
+                        self?.selectCategory(id)
+                    })
+                },
+            ])
         )
-        item.accessibilityLabel = String(localized: "forum.sidebar.show")
-        item.accessibilityIdentifier = "forum.sidebar.show"
+        item.accessibilityLabel = String(localized: "home.filter.accessibility.label")
+        item.accessibilityValue = homeViewModel.selectedCategory()?.name
+            ?? String(localized: "home.filter.all_categories")
+        item.accessibilityHint = String(localized: "home.filter.accessibility.hint")
+        item.accessibilityIdentifier = "forum.categories.menu"
         return item
     }
 
-    private func updateSidebarButton() {
+    private func updateCategoryMenuButton() {
         guard isViewLoaded else { return }
-        homeViewController.setSidebarToggleButton(needsSidebarButton ? makeShowSidebarItem() : nil)
+        homeViewController.setCategoryNavigationButton(needsCategoryMenu ? makeCategoryMenuItem() : nil)
         let visible = compactLayout
             ? compactNavigationController.topViewController
             : topicNavigationController.visibleViewController
-        if visible !== homeViewController && visible !== sidebarViewController {
-            updateSidebarButton(on: visible)
+        if visible !== homeViewController {
+            updateCategoryMenuButton(on: visible)
         }
     }
 
-    private func updateSidebarButton(on controller: UIViewController?) {
+    private func updateCategoryMenuButton(on controller: UIViewController?) {
         guard let controller else { return }
         var items = controller.navigationItem.rightBarButtonItems ?? []
-        items.removeAll { $0.accessibilityIdentifier == "forum.sidebar.show" }
-        if needsSidebarButton { items.insert(makeShowSidebarItem(), at: 0) }
+        items.removeAll { $0.accessibilityIdentifier == "forum.categories.menu" }
+        if needsCategoryMenu { items.insert(makeCategoryMenuItem(), at: 0) }
         controller.navigationItem.rightBarButtonItems = items
     }
 
@@ -226,11 +247,10 @@ final class ForumHomeSplitViewController: UISplitViewController, UISplitViewCont
         willShow viewController: UIViewController,
         animated: Bool
     ) {
-        guard viewController !== sidebarViewController else { return }
         if viewController === homeViewController {
-            homeViewController.setSidebarToggleButton(needsSidebarButton ? makeShowSidebarItem() : nil)
+            homeViewController.setCategoryNavigationButton(needsCategoryMenu ? makeCategoryMenuItem() : nil)
         } else {
-            updateSidebarButton(on: viewController)
+            updateCategoryMenuButton(on: viewController)
         }
     }
 
@@ -240,7 +260,7 @@ final class ForumHomeSplitViewController: UISplitViewController, UISplitViewCont
         animated: Bool
     ) {
         guard !changingColumns else { return }
-        if compactLayout, navigationController === compactNavigationController, !showingCompactSidebar {
+        if compactLayout, navigationController === compactNavigationController {
             topicStack = navigationController.viewControllers
         } else if !compactLayout, navigationController === topicNavigationController {
             topicStack = navigationController.viewControllers
@@ -251,7 +271,7 @@ final class ForumHomeSplitViewController: UISplitViewController, UISplitViewCont
         _ splitViewController: UISplitViewController,
         displayModeForExpandingToProposedDisplayMode proposedDisplayMode: UISplitViewController.DisplayMode
     ) -> UISplitViewController.DisplayMode {
-        .oneBesideSecondary
+        hidesCategoriesInPortrait ? .secondaryOnly : .oneBesideSecondary
     }
 
     func splitViewControllerDidCollapse(_ splitViewController: UISplitViewController) {
@@ -260,26 +280,6 @@ final class ForumHomeSplitViewController: UISplitViewController, UISplitViewCont
 
     func splitViewControllerDidExpand(_ splitViewController: UISplitViewController) {
         updateForCurrentSize()
-    }
-
-    @objc private func showForumSidebar() {
-        if compactLayout {
-            storeVisibleStack()
-            showingCompactSidebar = true
-            renderNavigation()
-        } else {
-            show(.primary)
-        }
-    }
-
-    @objc private func closeForumSidebar() { closeSidebar() }
-
-    private func closeSidebar() {
-        if compactLayout {
-            guard showingCompactSidebar else { return }
-            showingCompactSidebar = false
-            renderNavigation()
-        }
     }
 
     @objc private func updateTheme() {

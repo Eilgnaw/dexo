@@ -18,7 +18,7 @@ final class HomeViewController: ObservableViewController {
 
     /// Right bar button items injected by the container (e.g. minimize button), captured before we add our own.
     private var inheritedRightBarItems: [UIBarButtonItem] = []
-    private var sidebarToggleBarButton: UIBarButtonItem?
+    private var categoryNavigationBarButton: UIBarButtonItem?
 
     private lazy var categoryBarButton = UIBarButtonItem(
         image: UIImage(systemName: "line.3.horizontal.decrease"),
@@ -196,8 +196,8 @@ final class HomeViewController: ObservableViewController {
         Task { await viewModel.loadTopics() }
     }
 
-    func setSidebarToggleButton(_ item: UIBarButtonItem?) {
-        sidebarToggleBarButton = item
+    func setCategoryNavigationButton(_ item: UIBarButtonItem?) {
+        categoryNavigationBarButton = item
         if usesCategorySidebar { navigationItem.leftBarButtonItem = item }
     }
 
@@ -321,7 +321,7 @@ final class HomeViewController: ObservableViewController {
             object: nil
         )
 
-        navigationItem.leftBarButtonItem = usesCategorySidebar ? sidebarToggleBarButton : categoryBarButton
+        navigationItem.leftBarButtonItem = usesCategorySidebar ? categoryNavigationBarButton : categoryBarButton
         inheritedRightBarItems = navigationItem.rightBarButtonItems ?? []
         navigationItem.rightBarButtonItems = containerRightBarItems + [Self.makeRightBarSpacer(), sortBarButton]
 
@@ -381,7 +381,9 @@ final class HomeViewController: ObservableViewController {
         composeButton.backgroundColor = ThemeManager.shared.accentColor
         composeEdgeStrip.backgroundColor = ThemeManager.shared.floatingEdgeHandleColor
         if !usesCategorySidebar {
-            categoryBarButton.menu = UIMenu(title: "", children: buildCategoryMenuElements())
+            categoryBarButton.menu = UIMenu(title: "", children: buildCategoryMenuElements { [weak self] id in
+                self?.selectCategory(id)
+            })
         }
         sortBarButton.menu = buildSortMenu()
         updateCategoryButton()
@@ -722,14 +724,14 @@ final class HomeViewController: ObservableViewController {
         categoryBarButton.accessibilityHint = String(localized: "home.filter.accessibility.hint")
     }
 
-    private func buildCategoryMenuElements() -> [UIMenuElement] {
+    func buildCategoryMenuElements(onSelect: @escaping (Int?) -> Void) -> [UIMenuElement] {
         var elements: [UIMenuElement] = []
 
         let allAction = UIAction(
             title: String(localized: "home.filter.all_categories"),
             state: viewModel.selectedCategoryId == nil ? .on : .off
-        ) { [weak self] _ in
-            self?.selectCategory(nil)
+        ) { _ in
+            onSelect(nil)
         }
         elements.append(allAction)
 
@@ -737,8 +739,8 @@ final class HomeViewController: ObservableViewController {
             let state: UIMenuElement.State = viewModel.selectedCategoryId == cat.id ? .on : .off
             let catColor = Self.color(fromHex: cat.color)
             let catImage = Self.colorDotImage(color: catColor)
-            let catAction = UIAction(title: cat.name, image: catImage, state: state) { [weak self] _ in
-                self?.selectCategory(cat.id)
+            let catAction = UIAction(title: cat.name, image: catImage, state: state) { _ in
+                onSelect(cat.id)
             }
             if let subs = cat.subcategoryList, !subs.isEmpty {
                 var groupChildren: [UIMenuElement] = [catAction]
@@ -746,8 +748,8 @@ final class HomeViewController: ObservableViewController {
                     let subState: UIMenuElement.State = viewModel.selectedCategoryId == sub.id ? .on : .off
                     let subColor = Self.color(fromHex: sub.color)
                     let subImage = Self.colorDotImage(color: subColor)
-                    let subAction = UIAction(title: sub.name, image: subImage, state: subState) { [weak self] _ in
-                        self?.selectCategory(sub.id)
+                    let subAction = UIAction(title: sub.name, image: subImage, state: subState) { _ in
+                        onSelect(sub.id)
                     }
                     groupChildren.append(subAction)
                 }

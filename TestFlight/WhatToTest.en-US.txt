@@ -1,18 +1,2 @@
-iPad and Foldable Layout
-
-- On iPad and an unfolded iPhone Duo, Home shows forum categories beside the topic feed using the system split view. Home, Me, and Search remain in the system tab bar. On a regular iPhone or a narrow iPad window, Home opens directly to the feed; use the top-left button to browse categories.
-- Categories and subcategories are separate selections. Subcategories start collapsed; tap a parent's chevron to expand or collapse them. Selecting a category updates the feed and highlights that category without a blue focus border.
-- Open a topic and return to its feed. Pinned topics should appear above the feed and open when tapped. Switch between a narrow and a split window while scrolled mid-feed or reading: keep the loaded feed and roughly the same reading position, without another feed request just for resizing.
-
-Safe Areas and Floating Controls
-
-- In split view, post text, images, code, jump controls, and reply actions stay in the content pane. Resize the window and move the compose or floating reply button; neither should land under the category pane or outside the safe area.
-- Minimize the forum, resize its window, drag the floating shortcut to either edge, then restore it. The shortcut stays inside the safe area. If verification or login expiry is pending, the draggable shield/reminder stays in the active content pane when changing tabs or window size.
-- Drag the full compose button to an edge, change its vertical position, leave and reopen the forum, then relaunch. Its position persists; scrolling collapses it to a slim edge tab, and tapping that tab restores it.
-
-Key Regressions
-
-- Public topics, categories, and search work without signing in. Login expiry keeps public topics readable; login or Ignore clears the reminder. Cloudflare verification and read-time reporting use the same shield without an alert.
-- Cold launch with Auto-open Last Forum and open a notification for a different forum. The notification opens its topic once. Minimize and restore a forum without losing the current page; switching forums and returning to Settings still work.
-- On iOS 17/17.5.1, browse posts with SVG icons, avatars, and emoji; open an SVG in the full-screen viewer. Image loading and prefetch should not crash.
-- Open a topic with GIF and animated WebP images: they should play in the post and full-screen viewer, while static WebP stays still. Before an image loads, a subtle placeholder appears and then clears, including in dark mode.
+Rotate an iPad or unfolded foldable: portrait shows a single topic list with a top-left category menu, while landscape shows categories beside topics; switching layouts should preserve the list and reading position.
+Check GIF and animated WebP playback and image loading placeholders.
