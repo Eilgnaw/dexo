@@ -81,13 +81,13 @@ final class FloatingReplyButton: UIButton {
     }
 
     private func clampedCenter(_ p: CGPoint, in parent: UIView) -> CGPoint {
-        let insets = parent.safeAreaInsets
+        let safe = parent.safeAreaLayoutGuide.layoutFrame
         let half = Self.buttonSize / 2
         let inset = Self.edgeInset
-        let minX = insets.left + inset + half
-        let maxX = parent.bounds.width - insets.right - inset - half
-        let minY = insets.top + inset + half
-        let maxY = parent.bounds.height - insets.bottom - inset - half
+        let minX = min(safe.minX + inset + half, safe.midX)
+        let maxX = max(safe.maxX - inset - half, safe.midX)
+        let minY = min(safe.minY + inset + half, safe.midY)
+        let maxY = max(safe.maxY - inset - half, safe.midY)
         return CGPoint(
             x: min(max(p.x, minX), maxX),
             y: min(max(p.y, minY), maxY)
@@ -95,12 +95,12 @@ final class FloatingReplyButton: UIButton {
     }
 
     private func snapToEdge(in parent: UIView) {
-        let insets = parent.safeAreaInsets
+        let safe = parent.safeAreaLayoutGuide.layoutFrame
         let half = Self.buttonSize / 2
         let inset = Self.edgeInset
-        let leftEdge = insets.left + inset + half
-        let rightEdge = parent.bounds.width - insets.right - inset - half
-        let snapX: CGFloat = center.x < parent.bounds.midX ? leftEdge : rightEdge
+        let leftEdge = min(safe.minX + inset + half, safe.midX)
+        let rightEdge = max(safe.maxX - inset - half, safe.midX)
+        let snapX: CGFloat = center.x < safe.midX ? leftEdge : rightEdge
         let target = CGPoint(x: snapX, y: center.y)
         UIView.animate(
             withDuration: 0.28,
@@ -116,10 +116,10 @@ final class FloatingReplyButton: UIButton {
     /// safe-area bottom. Idempotent; safe to call after rotation.
     func placeAtDefaultPosition() {
         guard let parent = superview else { return }
-        let insets = parent.safeAreaInsets
+        let safe = parent.safeAreaLayoutGuide.layoutFrame
         let half = Self.buttonSize / 2
-        let x = parent.bounds.width - insets.right - Self.edgeInset - half
-        let y = parent.bounds.height - insets.bottom - Self.defaultBottomInset - half
+        let x = safe.maxX - Self.edgeInset - half
+        let y = safe.maxY - Self.defaultBottomInset - half
         center = CGPoint(x: x, y: y)
     }
 

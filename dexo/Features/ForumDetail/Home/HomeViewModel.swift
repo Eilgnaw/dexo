@@ -212,10 +212,14 @@ final class HomeViewModel {
     }
 
     func reloadCategories() async {
+        invalidateRequests()
         api.invalidateCategoryCache()
         categoriesById.removeAll()
         categories.removeAll()
         await loadCategoriesIfNeeded(generation: requestGeneration)
+        if selectedCategoryId != nil, selectedCategory() == nil {
+            selectedCategoryId = nil
+        }
     }
 
     /// Resets every piece of state derived from the previous credential before

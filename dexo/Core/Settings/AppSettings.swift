@@ -92,6 +92,38 @@ final class AppSettings {
         }
     }
 
+    struct ComposeButtonPosition: Codable, Equatable {
+        enum Edge: String, Codable, Equatable {
+            case left, right
+        }
+
+        let edge: Edge
+        let verticalFraction: Double
+    }
+
+    func composeButtonPosition(for baseURL: String) -> ComposeButtonPosition? {
+        guard let data = defaults.data(forKey: composeButtonPositionKey(for: baseURL)),
+              let position = try? JSONDecoder().decode(ComposeButtonPosition.self, from: data),
+              position.verticalFraction.isFinite,
+              (0...1).contains(position.verticalFraction)
+        else { return nil }
+        return position
+    }
+
+    func saveComposeButtonPosition(_ position: ComposeButtonPosition, for baseURL: String) {
+        guard position.verticalFraction.isFinite else { return }
+        let clamped = ComposeButtonPosition(
+            edge: position.edge,
+            verticalFraction: min(max(position.verticalFraction, 0), 1)
+        )
+        guard let data = try? JSONEncoder().encode(clamped) else { return }
+        defaults.set(data, forKey: composeButtonPositionKey(for: baseURL))
+    }
+
+    private func composeButtonPositionKey(for baseURL: String) -> String {
+        "home.compose.position.\(baseURL.trimmingCharacters(in: CharacterSet(charactersIn: "/")))"
+    }
+
     var hasShownAutoOpenPrompt: Bool {
         get { defaults.bool(forKey: "hasShownAutoOpenPrompt") }
         set { defaults.set(newValue, forKey: "hasShownAutoOpenPrompt") }

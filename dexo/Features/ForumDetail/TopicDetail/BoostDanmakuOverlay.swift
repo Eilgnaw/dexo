@@ -158,7 +158,13 @@ final class BoostDanmakuOverlay {
         stop()
         let token = cleanupToken
 
-        let frame = CGRect(x: 0, y: top, width: hostView.bounds.width, height: bottom - top)
+        let safeFrame = hostView.safeAreaLayoutGuide.layoutFrame
+        let frame = CGRect(
+            x: safeFrame.minX,
+            y: top,
+            width: safeFrame.width,
+            height: bottom - top
+        )
 
         let dv = DanmakuView(frame: frame)
         dv.isUserInteractionEnabled = false

@@ -137,6 +137,11 @@ final class VirtualizedTopicDetailViewController: ObservableViewController, UIGe
         return view
     }()
 
+    private var topicContainerWidth: CGFloat {
+        let width = collectionView.bounds.width
+        return width > 0 ? width : max(1, view.safeAreaLayoutGuide.layoutFrame.width)
+    }
+
     private lazy var dataSource = UICollectionViewDiffableDataSource<Int, VirtualTopicItem>(collectionView: collectionView) { [weak self] collectionView, indexPath, item in
         guard let self else { return UICollectionViewCell() }
         switch item {
@@ -478,18 +483,18 @@ final class VirtualizedTopicDetailViewController: ObservableViewController, UIGe
         floatingReplyButton.addTarget(self, action: #selector(floatingReplyTapped), for: .touchUpInside)
         NSLayoutConstraint.activate([
             collectionView.topAnchor.constraint(equalTo: view.topAnchor),
-            collectionView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            collectionView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            collectionView.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor),
+            collectionView.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor),
             collectionView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            activityIndicator.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            activityIndicator.centerXAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerXAnchor),
             activityIndicator.centerYAnchor.constraint(equalTo: view.centerYAnchor),
-            errorLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            errorLabel.centerXAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerXAnchor),
             errorLabel.centerYAnchor.constraint(equalTo: view.centerYAnchor),
-            errorLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 32),
-            errorLabel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -32),
+            errorLabel.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 32),
+            errorLabel.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -32),
             topLoadingBar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
-            topLoadingBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            topLoadingBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            topLoadingBar.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor),
+            topLoadingBar.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor),
             jumpOverlay.topAnchor.constraint(equalTo: collectionView.topAnchor),
             jumpOverlay.leadingAnchor.constraint(equalTo: collectionView.leadingAnchor),
             jumpOverlay.trailingAnchor.constraint(equalTo: collectionView.trailingAnchor),
@@ -633,14 +638,14 @@ final class VirtualizedTopicDetailViewController: ObservableViewController, UIGe
             updateTreeModeControls()
         }
         if viewModel.isTreeMode {
-            await viewModel.loadNestedTopic(id: topicId, containerWidth: view.bounds.width)
+            await viewModel.loadNestedTopic(id: topicId, containerWidth: topicContainerWidth)
         } else {
-            await viewModel.loadTopic(id: topicId, containerWidth: view.bounds.width, nearPostNumber: initialFloor)
+            await viewModel.loadTopic(id: topicId, containerWidth: topicContainerWidth, nearPostNumber: initialFloor)
         }
         if let floor = initialFloor, floor > 1,
            !viewModel.posts.contains(where: { $0.postNumber == floor })
         {
-            _ = await viewModel.jumpToFloor(floor, containerWidth: view.bounds.width)
+            _ = await viewModel.jumpToFloor(floor, containerWidth: topicContainerWidth)
         }
         guard generation == treeReloadGeneration else { return }
         activityIndicator.stopAnimating()
@@ -759,9 +764,9 @@ final class VirtualizedTopicDetailViewController: ObservableViewController, UIGe
             if viewModel.isTreeMode {
                 _ = await viewModel.loadMoreNestedRoots()
             } else if viewModel.isReverseOrder {
-                _ = await viewModel.loadEarlierPosts(containerWidth: view.bounds.width)
+                _ = await viewModel.loadEarlierPosts(containerWidth: topicContainerWidth)
             } else {
-                _ = await viewModel.loadMorePosts(containerWidth: view.bounds.width)
+                _ = await viewModel.loadMorePosts(containerWidth: topicContainerWidth)
             }
             guard operationGeneration == contentOperationGeneration else {
                 isLoadingPage = false
@@ -1445,7 +1450,7 @@ final class VirtualizedTopicDetailViewController: ObservableViewController, UIGe
         contentOperationGeneration &+= 1
         let anchor = captureAnchor()
         Task {
-            await viewModel.loadNestedTopic(id: topicId, sort: sort, containerWidth: view.bounds.width)
+            await viewModel.loadNestedTopic(id: topicId, sort: sort, containerWidth: topicContainerWidth)
             guard generation == treeReloadGeneration, viewModel.isTreeMode else { return }
             resolvedHeights.removeAll()
             resolvedBoostHeights.removeAll()
@@ -1465,9 +1470,9 @@ final class VirtualizedTopicDetailViewController: ObservableViewController, UIGe
         activityIndicator.startAnimating()
         Task {
             if targetTreeMode {
-                await viewModel.loadNestedTopic(id: topicId, containerWidth: view.bounds.width)
+                await viewModel.loadNestedTopic(id: topicId, containerWidth: topicContainerWidth)
             } else {
-                await viewModel.loadTopic(id: topicId, containerWidth: view.bounds.width)
+                await viewModel.loadTopic(id: topicId, containerWidth: topicContainerWidth)
             }
             guard generation == treeReloadGeneration else { return }
             _ = await reloadAllAfterTreeModeChange(
@@ -1619,9 +1624,9 @@ extension VirtualizedTopicDetailViewController: UICollectionViewDelegate, UIColl
             if viewModel.isTreeMode {
                 _ = await viewModel.loadMoreNestedRoots()
             } else if viewModel.isReverseOrder {
-                _ = await viewModel.loadEarlierPosts(containerWidth: view.bounds.width)
+                _ = await viewModel.loadEarlierPosts(containerWidth: topicContainerWidth)
             } else {
-                _ = await viewModel.loadMorePosts(containerWidth: view.bounds.width)
+                _ = await viewModel.loadMorePosts(containerWidth: topicContainerWidth)
             }
             guard operationGeneration == contentOperationGeneration else {
                 isLoadingPage = false
@@ -1702,7 +1707,7 @@ extension VirtualizedTopicDetailViewController: UICollectionViewDelegate, UIColl
         isLoadingPage = true
         let operationGeneration = contentOperationGeneration
         Task {
-            let addedPostIds = await viewModel.loadEarlierPosts(containerWidth: view.bounds.width)
+            let addedPostIds = await viewModel.loadEarlierPosts(containerWidth: topicContainerWidth)
             guard operationGeneration == contentOperationGeneration else {
                 isLoadingPage = false
                 return
@@ -1853,9 +1858,9 @@ extension VirtualizedTopicDetailViewController: TopicDetailBottomBarDelegate {
         Task {
             if viewModel.isReverseOrder {
                 viewModel.disableReverseOrder()
-                await viewModel.loadTopic(id: topicId, containerWidth: view.bounds.width)
+                await viewModel.loadTopic(id: topicId, containerWidth: topicContainerWidth)
             } else {
-                await viewModel.enableReverseOrder(containerWidth: view.bounds.width)
+                await viewModel.enableReverseOrder(containerWidth: topicContainerWidth)
             }
             guard generation == modeGeneration else { return }
             resolvedHeights.removeAll()
@@ -1870,7 +1875,7 @@ extension VirtualizedTopicDetailViewController: TopicDetailBottomBarDelegate {
         modeGeneration &+= 1
         let generation = modeGeneration
         Task {
-            await viewModel.toggleSummaryMode(containerWidth: view.bounds.width)
+            await viewModel.toggleSummaryMode(containerWidth: topicContainerWidth)
             guard generation == modeGeneration else { return }
             resolvedHeights.removeAll()
             resolvedBoostHeights.removeAll()
@@ -1896,16 +1901,17 @@ extension VirtualizedTopicDetailViewController: TopicDetailBottomBarDelegate {
         jumpScrubStartFloor = startingFloor
 
         let safeMargin: CGFloat = 60
-        let leftSpace = max(jumpScrubStartLocation.x - safeMargin, 1)
-        let rightSpace = max(view.bounds.width - jumpScrubStartLocation.x - safeMargin, 1)
+        let safeFrame = view.safeAreaLayoutGuide.layoutFrame
+        let leftSpace = max(jumpScrubStartLocation.x - safeFrame.minX - safeMargin, 1)
+        let rightSpace = max(safeFrame.maxX - jumpScrubStartLocation.x - safeMargin, 1)
         jumpScrubReferenceDistance = min(leftSpace, rightSpace)
 
         let barTop = bottomBar.convert(bottomBar.bounds, to: view).minY
         let overlay = JumpScrubberOverlay(
             totalFloors: total,
             startingFloor: startingFloor,
-            arcCenter: CGPoint(x: view.bounds.midX, y: barTop - 24),
-            radius: 130
+            arcCenter: CGPoint(x: safeFrame.midX, y: barTop - 24),
+            radius: min(130, max(1, (safeFrame.width - 32) / 2))
         )
         overlay.frame = view.bounds
         view.addSubview(overlay)
@@ -1960,9 +1966,9 @@ extension VirtualizedTopicDetailViewController: TopicDetailBottomBarDelegate {
             let generation = nextTreeReloadGeneration()
             activityIndicator.startAnimating()
             Task {
-                await viewModel.loadTopic(id: topicId, containerWidth: view.bounds.width)
+                await viewModel.loadTopic(id: topicId, containerWidth: topicContainerWidth)
                 if !viewModel.isFloorLoaded(floor) {
-                    _ = await viewModel.jumpToFloor(floor, containerWidth: view.bounds.width)
+                    _ = await viewModel.jumpToFloor(floor, containerWidth: topicContainerWidth)
                 }
                 guard generation == treeReloadGeneration, !viewModel.isTreeMode else { return }
                 guard await reloadAllAfterTreeModeChange(
@@ -1980,7 +1986,7 @@ extension VirtualizedTopicDetailViewController: TopicDetailBottomBarDelegate {
         isPerformingJump = true
         jumpOverlay.isHidden = false
         Task {
-            let succeeded = await viewModel.jumpToFloor(floor, containerWidth: view.bounds.width)
+            let succeeded = await viewModel.jumpToFloor(floor, containerWidth: topicContainerWidth)
             isPerformingJump = false
             jumpOverlay.isHidden = true
             guard succeeded else {
@@ -2381,14 +2387,14 @@ extension VirtualizedTopicDetailViewController: PostCellDelegate {
                         await self.viewModel.loadNestedTopic(
                             id: self.topicId,
                             sort: self.viewModel.treeSort,
-                            containerWidth: self.view.bounds.width
+                            containerWidth: self.topicContainerWidth
                         )
                         self.viewModel.expandAncestors(ofPostNumber: floor)
                     }
                 } else {
                     await self.viewModel.loadTopic(
                         id: self.topicId,
-                        containerWidth: self.view.bounds.width,
+                        containerWidth: self.topicContainerWidth,
                         nearPostNumber: floor
                     )
                 }
@@ -2478,13 +2484,13 @@ extension VirtualizedTopicDetailViewController: PostCellDelegate {
             await viewModel.loadNestedTopic(
                 id: topicId,
                 sort: viewModel.treeSort,
-                containerWidth: view.bounds.width
+                containerWidth: topicContainerWidth
             )
             viewModel.expandAncestors(ofPostNumber: floor)
         } else {
             await viewModel.loadTopic(
                 id: topicId,
-                containerWidth: view.bounds.width,
+                containerWidth: topicContainerWidth,
                 nearPostNumber: floor
             )
         }

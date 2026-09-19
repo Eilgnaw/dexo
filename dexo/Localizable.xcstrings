@@ -548,6 +548,70 @@
         }
       }
     },
+    "auth.expired.ignore" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ignore This Prompt"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "忽略此次提示"
+          }
+        }
+      }
+    },
+    "auth.expired.indicator.hint" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Opens login recovery options"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "打开重新登录选项"
+          }
+        }
+      }
+    },
+    "auth.expired.relogin" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Log In Again"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "重新登录"
+          }
+        }
+      }
+    },
+    "auth.expired.title" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Login expired"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "登录已失效"
+          }
+        }
+      }
+    },
     "cache.avatars" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -951,70 +1015,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "登录后浏览分类"
-          }
-        }
-      }
-    },
-    "auth.expired.ignore" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ignore This Prompt"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "忽略此次提示"
-          }
-        }
-      }
-    },
-    "auth.expired.indicator.hint" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Opens login recovery options"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "打开重新登录选项"
-          }
-        }
-      }
-    },
-    "auth.expired.relogin" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Log In Again"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "重新登录"
-          }
-        }
-      }
-    },
-    "auth.expired.title" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Login expired"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "登录已失效"
           }
         }
       }
@@ -2457,6 +2457,54 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "论坛已禁用"
+          }
+        }
+      }
+    },
+    "forum.sidebar.collapse_subcategories" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Collapse subcategories"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "折叠子板块"
+          }
+        }
+      }
+    },
+    "forum.sidebar.expand_subcategories" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Expand subcategories"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "展开子板块"
+          }
+        }
+      }
+    },
+    "forum.sidebar.show" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Show forum sidebar"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "显示论坛侧栏"
           }
         }
       }
@@ -6757,7 +6805,6 @@
       }
     },
     "tab.categories" : {
-      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {

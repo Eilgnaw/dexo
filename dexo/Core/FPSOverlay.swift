@@ -46,8 +46,8 @@ final class FPSOverlay {
         root.view.addSubview(label)
 
         NSLayoutConstraint.activate([
-            label.topAnchor.constraint(equalTo: root.view.safeAreaLayoutGuide.topAnchor, constant: 4),
-            label.trailingAnchor.constraint(equalTo: root.view.safeAreaLayoutGuide.trailingAnchor, constant: -8),
+            label.topAnchor.constraint(equalTo: root.view.safeAreaLayoutGuide.topAnchor, constant: 8),
+            label.trailingAnchor.constraint(equalTo: root.view.safeAreaLayoutGuide.trailingAnchor, constant: -16),
             label.widthAnchor.constraint(greaterThanOrEqualToConstant: 52),
             label.heightAnchor.constraint(equalToConstant: 18),
         ])

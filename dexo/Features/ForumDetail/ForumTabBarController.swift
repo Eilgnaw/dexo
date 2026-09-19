@@ -4,12 +4,16 @@ final class ForumTabBarController: UITabBarController, UITabBarControllerDelegat
     override var childForStatusBarStyle: UIViewController? { selectedViewController }
 
     private let api: DiscourseAPI
+    private let forum: ForumInstance
     private weak var authGate: AuthGating?
     private(set) var navigationControllers: [UINavigationController] = []
+    private(set) var homeSplitViewController: ForumHomeSplitViewController?
     var notificationPoller: NotificationPoller?
+    var onSelectionChanged: (() -> Void)?
 
-    init(api: DiscourseAPI, authGate: AuthGating? = nil) {
+    init(api: DiscourseAPI, forum: ForumInstance, authGate: AuthGating? = nil) {
         self.api = api
+        self.forum = forum
         self.authGate = authGate
         super.init(nibName: nil, bundle: nil)
     }
@@ -26,9 +30,9 @@ final class ForumTabBarController: UITabBarController, UITabBarControllerDelegat
             tabBarMinimizeBehavior = .onScrollDown
         }
 
-        let homeVC = HomeViewController(api: api, authGate: authGate)
-        let homeNav = ForumNavigationController(rootViewController: homeVC)
-        homeNav.tabBarItem = UITabBarItem(title: String(localized: "tab.home"), image: UIImage(systemName: "house"), tag: 0)
+        let homeRoot = ForumHomeSplitViewController(forum: forum, api: api, authGate: authGate)
+        homeSplitViewController = homeRoot
+        homeRoot.tabBarItem = UITabBarItem(title: String(localized: "tab.home"), image: UIImage(systemName: "house"), tag: 0)
 
         let meVC = MeViewController(api: api, authGate: authGate)
         let meNav = ForumNavigationController(rootViewController: meVC)
@@ -38,18 +42,18 @@ final class ForumTabBarController: UITabBarController, UITabBarControllerDelegat
         let searchNav = ForumNavigationController(rootViewController: searchVC)
         searchNav.tabBarItem = UITabBarItem(title: String(localized: "search.title"), image: UIImage(systemName: "magnifyingglass"), tag: 2)
 
-        navigationControllers = [homeNav, meNav, searchNav]
+        navigationControllers = [homeRoot.topicNavigationController, meNav, searchNav]
 
         if #available(iOS 18.0, *) {
-            let homeTab = UITab(title: String(localized: "tab.home"), image: UIImage(systemName: "house"), identifier: "home") { _ in homeNav }
+            let homeTab = UITab(title: String(localized: "tab.home"), image: UIImage(systemName: "house"), identifier: "home") { _ in homeRoot }
             let meTab = UITab(title: String(localized: "tab.me"), image: UIImage(systemName: "person"), identifier: "me") { _ in meNav }
             let searchTab = UISearchTab { _ in searchNav }
             self.tabs = [homeTab, meTab, searchTab]
             if traitCollection.userInterfaceIdiom == .pad {
-                self.mode = .tabSidebar
+                self.mode = .tabBar
             }
         } else {
-            viewControllers = [homeNav, meNav, searchNav]
+            viewControllers = [homeRoot, meNav, searchNav]
         }
     }
 
@@ -68,8 +72,20 @@ final class ForumTabBarController: UITabBarController, UITabBarControllerDelegat
         return !handleHomeTabReTap()
     }
 
+    func tabBarController(_ tabBarController: UITabBarController, didSelect viewController: UIViewController) {
+        onSelectionChanged?()
+    }
+
+    @available(iOS 18.0, *)
+    func tabBarController(_ tabBarController: UITabBarController, didSelectTab selectedTab: UITab, previousTab: UITab?) {
+        onSelectionChanged?()
+    }
+
     /// Returns `true` if the re-tap was handled (home tab at root).
     private func handleHomeTabReTap() -> Bool {
+        if let split = homeSplitViewController, split === selectedViewController {
+            return split.scrollToTopOrRefreshIfAtRoot()
+        }
         guard let homeNav = navigationControllers.first,
               homeNav == selectedViewController,
               homeNav.viewControllers.count == 1,

@@ -4,6 +4,7 @@ final class HomeViewController: ObservableViewController {
     private let api: DiscourseAPI
     private let viewModel: HomeViewModel
     private weak var authGate: AuthGating?
+    private let usesCategorySidebar: Bool
     private var locallyReadTopicIDs: Set<Int> = []
 
     private lazy var sortBarButton: UIBarButtonItem = {
@@ -17,6 +18,7 @@ final class HomeViewController: ObservableViewController {
 
     /// Right bar button items injected by the container (e.g. minimize button), captured before we add our own.
     private var inheritedRightBarItems: [UIBarButtonItem] = []
+    private var sidebarToggleBarButton: UIBarButtonItem?
 
     private lazy var categoryBarButton = UIBarButtonItem(
         image: UIImage(systemName: "line.3.horizontal.decrease"),
@@ -119,10 +121,9 @@ final class HomeViewController: ObservableViewController {
     private var composeDragDistance: CGFloat = 0
     private var composeScrollStartOffset: CGFloat?
     private var isComposeCollapsed = false
+    private var lastComposeSafeFrame: CGRect?
 
-    private enum ComposeEdge: Equatable {
-        case left, right
-    }
+    private typealias ComposeEdge = AppSettings.ComposeButtonPosition.Edge
 
     private var composeEdge: ComposeEdge = .right
 
@@ -177,11 +178,31 @@ final class HomeViewController: ObservableViewController {
     /// the first tap makes the second tap's refresh behavior deterministic.
     private var shouldRefreshOnNextHomeTabTap = false
 
-    init(api: DiscourseAPI, authGate: AuthGating? = nil) {
+    init(
+        api: DiscourseAPI,
+        authGate: AuthGating? = nil,
+        viewModel: HomeViewModel? = nil,
+        usesCategorySidebar: Bool = false
+    ) {
         self.api = api
-        self.viewModel = HomeViewModel(api: api)
+        self.viewModel = viewModel ?? HomeViewModel(api: api)
         self.authGate = authGate
+        self.usesCategorySidebar = usesCategorySidebar
         super.init(nibName: nil, bundle: nil)
+    }
+
+    func selectCategoryFromSidebar(_ categoryId: Int?) {
+        guard viewModel.selectCategory(categoryId) else { return }
+        Task { await viewModel.loadTopics() }
+    }
+
+    func setSidebarToggleButton(_ item: UIBarButtonItem?) {
+        sidebarToggleBarButton = item
+        if usesCategorySidebar { navigationItem.leftBarButtonItem = item }
+    }
+
+    private var containerRightBarItems: [UIBarButtonItem] {
+        inheritedRightBarItems
     }
 
     @available(*, unavailable)
@@ -193,15 +214,42 @@ final class HomeViewController: ObservableViewController {
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        let safe = view.safeAreaLayoutGuide.layoutFrame
 
         if !hasPlacedComposeButton {
+            guard safe.width > 0, safe.height > 0 else { return }
             hasPlacedComposeButton = true
-            let safe = view.safeAreaLayoutGuide.layoutFrame
+            let verticalRange = composeVerticalRange(in: safe)
+            let savedPosition = AppSettings.shared.composeButtonPosition(for: api.baseURL)
+            composeEdge = savedPosition?.edge ?? .right
+            let y = savedPosition.map {
+                verticalRange.minimum
+                    + CGFloat($0.verticalFraction)
+                        * (verticalRange.maximum - verticalRange.minimum)
+            } ?? verticalRange.maximum
             composeButton.center = CGPoint(
-                x: safe.maxX - composeButtonEdgeMargin - composeButtonSize / 2,
-                y: safe.maxY - composeButtonEdgeMargin - composeButtonSize / 2
+                x: composeEdge == .right
+                    ? safe.maxX - composeButtonEdgeMargin - composeButtonSize / 2
+                    : safe.minX + composeButtonEdgeMargin + composeButtonSize / 2,
+                y: y
+            )
+        } else if let previous = lastComposeSafeFrame, previous != safe,
+                  safe.width > 0, safe.height > 0 {
+            let oldRange = composeVerticalRange(in: previous)
+            let newRange = composeVerticalRange(in: safe)
+            let fraction = oldRange.maximum > oldRange.minimum
+                ? (composeButton.center.y - oldRange.minimum)
+                    / (oldRange.maximum - oldRange.minimum) : 1
+            let half = composeButtonSize / 2
+            composeButton.center = CGPoint(
+                x: composeEdge == .right
+                    ? safe.maxX - composeButtonEdgeMargin - half
+                    : safe.minX + composeButtonEdgeMargin + half,
+                y: newRange.minimum
+                    + min(max(fraction, 0), 1) * (newRange.maximum - newRange.minimum)
             )
         }
+        lastComposeSafeFrame = safe
         layoutComposeEdgeButton()
 
         if tableView.tableHeaderView === pinnedBar,
@@ -249,19 +297,19 @@ final class HomeViewController: ObservableViewController {
 
         NSLayoutConstraint.activate([
             tableView.topAnchor.constraint(equalTo: view.topAnchor),
-            tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            tableView.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor),
+            tableView.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor),
             tableView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
 
-            activityIndicator.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            activityIndicator.centerXAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerXAnchor),
             activityIndicator.centerYAnchor.constraint(equalTo: view.centerYAnchor),
 
-            errorLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            errorLabel.centerXAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerXAnchor),
             errorLabel.centerYAnchor.constraint(equalTo: view.centerYAnchor),
-            errorLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 32),
-            errorLabel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -32),
+            errorLabel.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 32),
+            errorLabel.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -32),
 
-            loginButton.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            loginButton.centerXAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerXAnchor),
             loginButton.topAnchor.constraint(equalTo: errorLabel.bottomAnchor, constant: 16),
         ])
 
@@ -273,9 +321,9 @@ final class HomeViewController: ObservableViewController {
             object: nil
         )
 
-        navigationItem.leftBarButtonItem = categoryBarButton
+        navigationItem.leftBarButtonItem = usesCategorySidebar ? sidebarToggleBarButton : categoryBarButton
         inheritedRightBarItems = navigationItem.rightBarButtonItems ?? []
-        navigationItem.rightBarButtonItems = inheritedRightBarItems + [Self.makeRightBarSpacer(), sortBarButton]
+        navigationItem.rightBarButtonItems = containerRightBarItems + [Self.makeRightBarSpacer(), sortBarButton]
 
         view.addSubview(composeButton)
         composeButton.frame = CGRect(x: 0, y: 0, width: composeButtonSize, height: composeButtonSize)
@@ -313,23 +361,28 @@ final class HomeViewController: ObservableViewController {
 
     override func updateUI() {
         _ = AppSettings.shared.localBlocklistRevision
+        if usesCategorySidebar {
+            navigationItem.title = viewModel.selectedCategory()?.name ?? String(localized: "tab.home")
+        }
         // Login-required state
         if viewModel.requiresLogin {
             errorLabel.text = viewModel.errorMessage
             errorLabel.isHidden = false
             loginButton.isHidden = false
             tableView.isHidden = true
-            navigationItem.rightBarButtonItems = inheritedRightBarItems
+            navigationItem.rightBarButtonItems = containerRightBarItems
             activityIndicator.stopAnimating()
             return
         }
 
         loginButton.isHidden = true
         tableView.isHidden = false
-        navigationItem.rightBarButtonItems = inheritedRightBarItems + [Self.makeRightBarSpacer(), sortBarButton]
+        navigationItem.rightBarButtonItems = containerRightBarItems + [Self.makeRightBarSpacer(), sortBarButton]
         composeButton.backgroundColor = ThemeManager.shared.accentColor
         composeEdgeStrip.backgroundColor = ThemeManager.shared.floatingEdgeHandleColor
-        categoryBarButton.menu = UIMenu(title: "", children: buildCategoryMenuElements())
+        if !usesCategorySidebar {
+            categoryBarButton.menu = UIMenu(title: "", children: buildCategoryMenuElements())
+        }
         sortBarButton.menu = buildSortMenu()
         updateCategoryButton()
         // Show non-login errors (e.g. rate limit) when topic list is empty
@@ -423,9 +476,18 @@ final class HomeViewController: ObservableViewController {
         case .began:
             composeDragDistance = 0
         case .changed:
-            composeButton.center = CGPoint(
+            let proposed = CGPoint(
                 x: composeButton.center.x + translation.x,
                 y: composeButton.center.y + translation.y
+            )
+            let safe = view.safeAreaLayoutGuide.layoutFrame
+            let half = composeButtonSize / 2
+            let minimumX = min(safe.minX + composeButtonEdgeMargin + half, safe.midX)
+            let maximumX = max(safe.maxX - composeButtonEdgeMargin - half, safe.midX)
+            let verticalRange = composeVerticalRange(in: safe)
+            composeButton.center = CGPoint(
+                x: min(max(proposed.x, minimumX), maximumX),
+                y: min(max(proposed.y, verticalRange.minimum), verticalRange.maximum)
             )
             composeDragDistance += abs(translation.x) + abs(translation.y)
             gesture.setTranslation(.zero, in: view)
@@ -447,7 +509,7 @@ final class HomeViewController: ObservableViewController {
         if abs(velocity.x) > 200 {
             goRight = velocity.x > 0
         } else {
-            goRight = center.x > view.bounds.midX
+            goRight = center.x > safe.midX
         }
         composeEdge = goRight ? .right : .left
 
@@ -455,8 +517,17 @@ final class HomeViewController: ObservableViewController {
             ? safe.maxX - margin - half
             : safe.minX + margin + half
 
-        // Clamp Y within safe area
-        let targetY = min(max(center.y, safe.minY + half + margin), safe.maxY - half - margin)
+        // Clamp Y within safe area and persist it as a fraction so it survives
+        // different screen sizes and tab-bar insets.
+        let verticalRange = composeVerticalRange(in: safe)
+        let targetY = min(max(center.y, verticalRange.minimum), verticalRange.maximum)
+        let fraction = verticalRange.maximum > verticalRange.minimum
+            ? Double((targetY - verticalRange.minimum)
+                / (verticalRange.maximum - verticalRange.minimum)) : 1
+        AppSettings.shared.saveComposeButtonPosition(
+            .init(edge: composeEdge, verticalFraction: fraction),
+            for: api.baseURL
+        )
 
         UIView.animate(
             withDuration: 0.35,
@@ -469,13 +540,17 @@ final class HomeViewController: ObservableViewController {
         }
     }
 
+    private func composeVerticalRange(in safe: CGRect) -> (minimum: CGFloat, maximum: CGFloat) {
+        let inset = composeButtonSize / 2 + composeButtonEdgeMargin
+        let minimum = safe.minY + inset
+        return (minimum, max(minimum, safe.maxY - inset))
+    }
+
     private func layoutComposeEdgeButton() {
         guard hasPlacedComposeButton else { return }
         let safe = view.safeAreaLayoutGuide.layoutFrame
-        let half = composeButtonSize / 2
-        let minimumY = safe.minY + half + composeButtonEdgeMargin
-        let maximumY = max(minimumY, safe.maxY - half - composeButtonEdgeMargin)
-        let y = min(max(composeButton.center.y, minimumY), maximumY)
+        let verticalRange = composeVerticalRange(in: safe)
+        let y = min(max(composeButton.center.y, verticalRange.minimum), verticalRange.maximum)
         if isComposeCollapsed {
             composeButton.center.y = y
         }
@@ -502,7 +577,7 @@ final class HomeViewController: ObservableViewController {
     private func collapseComposeButton() {
         guard !isComposeCollapsed else { return }
         isComposeCollapsed = true
-        composeEdge = composeButton.center.x >= view.bounds.midX ? .right : .left
+        composeEdge = composeButton.center.x >= view.safeAreaLayoutGuide.layoutFrame.midX ? .right : .left
         layoutComposeEdgeButton()
         composeEdgeButton.alpha = 0
         composeEdgeButton.isHidden = false

@@ -4,8 +4,13 @@ import UIKit
 final class ForumOverlayManager {
     static let shared = ForumOverlayManager()
 
+    private enum FloatingEdge { case left, right }
+    private static let floatingButtonSize: CGFloat = 56
+    private static let floatingEdgeInset: CGFloat = 32
+
     private(set) var currentContainer: ForumContainerViewController?
     private var floatingButton: UIView?
+    private var floatingButtonEdge: FloatingEdge = .right
     private var isMinimized = false
     private weak var mainWindow: UIWindow?
     private var overlayWindow: UIWindow?
@@ -16,14 +21,61 @@ final class ForumOverlayManager {
     /// Tracks the floating button position for animation target
     private var floatingButtonCenter: CGPoint {
         guard let mainWindow else { return .zero }
-        let safeArea = mainWindow.safeAreaInsets
+        let range = floatingCenterRange(in: mainWindow)
+        return CGPoint(x: range.maxX, y: range.maxY)
+    }
+
+    private func floatingSafeBounds(in window: UIWindow) -> CGRect {
+        let bounds = window.safeAreaLayoutGuide.layoutFrame
+        return bounds.width > 0 && bounds.height > 0
+            ? bounds : window.bounds.inset(by: window.safeAreaInsets)
+    }
+
+    private func floatingCenterRange(in window: UIWindow) -> (minX: CGFloat, maxX: CGFloat, minY: CGFloat, maxY: CGFloat) {
+        let safe = floatingSafeBounds(in: window)
+        let inset = Self.floatingEdgeInset + Self.floatingButtonSize / 2
+        return (
+            minX: min(safe.minX + inset, safe.midX),
+            maxX: max(safe.maxX - inset, safe.midX),
+            minY: min(safe.minY + inset, safe.midY),
+            maxY: max(safe.maxY - inset, safe.midY)
+        )
+    }
+
+    private func clampedFloatingCenter(_ center: CGPoint, in window: UIWindow) -> CGPoint {
+        let range = floatingCenterRange(in: window)
         return CGPoint(
-            x: mainWindow.bounds.width - 44 - 16,
-            y: mainWindow.bounds.height - safeArea.bottom - 44 - 16
+            x: min(max(center.x, range.minX), range.maxX),
+            y: min(max(center.y, range.minY), range.maxY)
+        )
+    }
+
+    private func snappedFloatingCenter(_ center: CGPoint, in window: UIWindow) -> CGPoint {
+        let range = floatingCenterRange(in: window)
+        let clamped = clampedFloatingCenter(center, in: window)
+        return CGPoint(
+            x: floatingButtonEdge == .left ? range.minX : range.maxX,
+            y: clamped.y
         )
     }
 
     private init() {}
+
+    /// A secondary UIWindow does not follow the main window's Stage Manager
+    /// size automatically on every iPadOS release.
+    func updateGeometry(for scene: UIWindowScene) {
+        guard let mainWindow, mainWindow.windowScene === scene else { return }
+        mainWindow.layoutIfNeeded()
+        let bounds = mainWindow.bounds
+        if let overlayWindow, overlayWindow.windowScene === scene,
+           overlayWindow.frame != bounds {
+            overlayWindow.frame = bounds
+            overlayWindow.rootViewController?.view.setNeedsLayout()
+        }
+        if isMinimized, let floatingButton, floatingButton.superview === mainWindow {
+            floatingButton.center = snappedFloatingCenter(floatingButton.center, in: mainWindow)
+        }
+    }
 
     // MARK: - Present
 
@@ -49,6 +101,7 @@ final class ForumOverlayManager {
         dismissOverlayWindow()
         removeFloatingButton()
         isMinimized = false
+        floatingButtonEdge = .right
 
         mainWindow = window
 
@@ -212,7 +265,8 @@ final class ForumOverlayManager {
 
         removeFloatingButton()
 
-        let size: CGFloat = 56
+        let size = Self.floatingButtonSize
+        floatingButtonEdge = .right
 
         // Container view
         let button = UIView(frame: CGRect(x: 0, y: 0, width: size, height: size))
@@ -288,29 +342,20 @@ final class ForumOverlayManager {
 
         switch gesture.state {
         case .changed:
-            button.center = CGPoint(
+            let proposed = CGPoint(
                 x: button.center.x + translation.x,
                 y: button.center.y + translation.y
             )
+            button.center = clampedFloatingCenter(proposed, in: mainWindow)
             gesture.setTranslation(.zero, in: mainWindow)
 
         case .ended, .cancelled:
-            // Snap to nearest left/right edge
-            let safeArea = mainWindow.safeAreaInsets
-            let halfWidth = button.bounds.width / 2
-            let margin: CGFloat = 16
-
-            let leftX = safeArea.left + margin + halfWidth
-            let rightX = mainWindow.bounds.width - safeArea.right - margin - halfWidth
-            let targetX = button.center.x < mainWindow.bounds.midX ? leftX : rightX
-
-            // Clamp Y within safe area
-            let minY = safeArea.top + margin + halfWidth
-            let maxY = mainWindow.bounds.height - safeArea.bottom - margin - halfWidth
-            let targetY = min(max(button.center.y, minY), maxY)
+            floatingButtonEdge = button.center.x < floatingSafeBounds(in: mainWindow).midX
+                ? .left : .right
+            let target = snappedFloatingCenter(button.center, in: mainWindow)
 
             UIView.animate(withDuration: 0.35, delay: 0, usingSpringWithDamping: 0.8, initialSpringVelocity: 0) {
-                button.center = CGPoint(x: targetX, y: targetY)
+                button.center = target
             }
 
         default:

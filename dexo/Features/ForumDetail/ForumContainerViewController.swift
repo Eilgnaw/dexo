@@ -99,7 +99,7 @@ final class ForumContainerViewController: BaseViewController, AuthGating {
 
     func stopPoller() {
         notificationPoller?.stop()
-        notificationPoller = nil
+        setNotificationPoller(nil)
     }
 
     @discardableResult
@@ -125,21 +125,31 @@ final class ForumContainerViewController: BaseViewController, AuthGating {
     private func openPendingPushDestinationIfPossible() {
         guard viewIfLoaded?.window != nil,
               let destination = pendingPushDestination else { return }
-        guard let tabBar = children.first as? ForumTabBarController,
-              let navigationController = tabBar.navigationControllers.first else { return }
+        guard let tabBar = children.first as? ForumTabBarController else { return }
         pendingPushDestination = nil
         if #available(iOS 18.0, *) {
             tabBar.selectedTab = tabBar.tabs.first
         } else {
             tabBar.selectedIndex = 0
         }
-        let viewController = TopicDetailControllerFactory.make(
-            api: api,
-            topicId: destination.topicID,
-            initialFloor: destination.floor
-        )
-        navigationController.popToRootViewController(animated: false)
-        navigationController.pushViewController(viewController, animated: destination.animated)
+        if let split = tabBar.homeSplitViewController {
+            split.openTopic(
+                topicID: destination.topicID,
+                initialFloor: destination.floor,
+                animated: destination.animated
+            )
+        } else if let navigationController = tabBar.navigationControllers.first {
+            let viewController = TopicDetailControllerFactory.make(
+                api: api,
+                topicId: destination.topicID,
+                initialFloor: destination.floor
+            )
+            navigationController.popToRootViewController(animated: false)
+            navigationController.pushViewController(viewController, animated: destination.animated)
+        } else {
+            pendingPushDestination = destination
+            return
+        }
         destination.completion()
     }
 
@@ -217,7 +227,7 @@ final class ForumContainerViewController: BaseViewController, AuthGating {
             }
         } else {
             notificationPoller?.stop()
-            notificationPoller = nil
+            setNotificationPoller(nil)
         }
         challengeIndicatorHost.refresh(animated: false)
     }
@@ -269,6 +279,7 @@ final class ForumContainerViewController: BaseViewController, AuthGating {
     private func updateCloudflareChallengeIndicatorPlacement() {
         guard view.bounds.width > 0, view.bounds.height > 0 else { return }
         let safeBounds = view.bounds.inset(by: view.safeAreaInsets)
+        var horizontalBounds = safeBounds
         var top = safeBounds.minY
         var bottom = safeBounds.maxY - 72
 
@@ -279,6 +290,11 @@ final class ForumContainerViewController: BaseViewController, AuthGating {
                     to: view
                 )
                 top = max(top, navigationFrame.maxY)
+            } else if let split = tabBarController.selectedViewController as? ForumHomeSplitViewController {
+                let paneBounds = split.activePaneFrame(in: view)
+                let intersection = safeBounds.intersection(paneBounds)
+                if !intersection.isNull { horizontalBounds = intersection }
+                top = max(top, split.activeNavigationBarFrame(in: view).maxY)
             }
             let tabBarFrame = tabBarController.tabBar.convert(
                 tabBarController.tabBar.bounds,
@@ -292,13 +308,13 @@ final class ForumContainerViewController: BaseViewController, AuthGating {
         let availableBounds: CGRect
         if bottom - top >= 96 {
             availableBounds = CGRect(
-                x: safeBounds.minX,
+                x: horizontalBounds.minX,
                 y: top,
-                width: safeBounds.width,
+                width: horizontalBounds.width,
                 height: bottom - top
             )
         } else {
-            availableBounds = safeBounds
+            availableBounds = horizontalBounds
         }
         challengeIndicatorHost.updatePlacement(in: availableBounds)
     }
@@ -422,7 +438,7 @@ final class ForumContainerViewController: BaseViewController, AuthGating {
                     }
                 } else {
                     self.notificationPoller?.stop()
-                    self.notificationPoller = nil
+                    self.setNotificationPoller(nil)
                 }
             }
         }
@@ -434,15 +450,21 @@ final class ForumContainerViewController: BaseViewController, AuthGating {
             self?.currentUsername()
         }
         poller.start()
-        notificationPoller = poller
+        setNotificationPoller(poller)
+        observeUnreadBadge()
+    }
 
-        // Pass poller to tab bar so MeViewController can read counts
+    private func setNotificationPoller(_ poller: NotificationPoller?) {
+        notificationPoller = poller
         if let tabBarVC = children.first as? ForumTabBarController {
             tabBarVC.notificationPoller = poller
+            let badge: String? = poller?.hasAnyUnread == true ? "" : nil
+            if #available(iOS 18.0, *) {
+                if tabBarVC.tabs.count > 1 { tabBarVC.tabs[1].badgeValue = badge }
+            } else {
+                tabBarVC.viewControllers?[1].tabBarItem.badgeValue = badge
+            }
         }
-
-        // Observe total unread count to update tab badge
-        observeUnreadBadge()
     }
 
     private func observeUnreadBadge() {
@@ -451,22 +473,15 @@ final class ForumContainerViewController: BaseViewController, AuthGating {
             _ = poller.hasAnyUnread
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
-                guard let self, let tabBarVC = self.children.first as? ForumTabBarController else { return }
-                // Red dot: empty string shows dot without number
-                let badge: String? = poller.hasAnyUnread ? "" : nil
-                if #available(iOS 18.0, *) {
-                    guard tabBarVC.tabs.count > 1 else { return }
-                    tabBarVC.tabs[1].badgeValue = badge
-                } else {
-                    tabBarVC.viewControllers?[1].tabBarItem.badgeValue = badge
-                }
+                guard let self, self.notificationPoller === poller else { return }
+                self.setNotificationPoller(poller)
                 self.observeUnreadBadge()
             }
         }
     }
 
     private func setupTabBar() {
-        let tabBarVC = ForumTabBarController(api: api, authGate: self)
+        let tabBarVC = ForumTabBarController(api: api, forum: forum, authGate: self)
         addChild(tabBarVC)
         view.addSubview(tabBarVC.view)
         tabBarVC.view.translatesAutoresizingMaskIntoConstraints = false
@@ -484,6 +499,14 @@ final class ForumContainerViewController: BaseViewController, AuthGating {
         tabBarVC.tabBar.scrollEdgeAppearance = appearance // 强制覆盖，不让系统自动切换
         tabBarVC.tabBar.tintColor = ThemeManager.shared.accentColor
 
+        let updateIndicatorPlacement: () -> Void = { [weak self] in
+            DispatchQueue.main.async { [weak self] in
+                self?.updateCloudflareChallengeIndicatorPlacement()
+            }
+        }
+        tabBarVC.onSelectionChanged = updateIndicatorPlacement
+        tabBarVC.homeSplitViewController?.onPaneLayout = updateIndicatorPlacement
+
         tabBarVC.didMove(toParent: self)
 
         NotificationCenter.default.addObserver(
@@ -495,8 +518,9 @@ final class ForumContainerViewController: BaseViewController, AuthGating {
     }
 
     @objc private func updateTabBarTheme() {
-        guard let tabBarVC = children.first as? ForumTabBarController else { return }
-        tabBarVC.tabBar.tintColor = ThemeManager.shared.accentColor
+        if let tabBarVC = children.first as? ForumTabBarController {
+            tabBarVC.tabBar.tintColor = ThemeManager.shared.accentColor
+        }
         challengeIndicatorHost.indicator.configureTheme()
     }
 
@@ -509,6 +533,7 @@ final class ForumContainerViewController: BaseViewController, AuthGating {
         ]
 
         for (i, nav) in tabBarVC.navigationControllers.enumerated() {
+            if i == 0, tabBarVC.homeSplitViewController != nil { continue }
             guard let rootVC = nav.viewControllers.first else { continue }
             if i < titles.count {
                 rootVC.title = titles[i]

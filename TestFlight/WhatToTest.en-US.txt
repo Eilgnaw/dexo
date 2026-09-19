@@ -1,48 +1,17 @@
-Login Expiry Reminder
+iPad and Foldable Layout
 
-- Revoke an API key or expire a web session, then reopen or refresh a public forum. Topics stay readable; a draggable login badge appears across tabs and after relaunch.
-- Tap for either login method; login or Ignore clears it. Guests/manual logout show no badge. If Cloudflare is pending, one menu offers both actions.
+- On iPad and an unfolded iPhone Duo, Home shows forum categories beside the topic feed using the system split view. Home, Me, and Search remain in the system tab bar. On a regular iPhone or a narrow iPad window, Home opens directly to the feed; use the top-left button to browse categories.
+- Categories and subcategories are separate selections. Subcategories start collapsed; tap a parent's chevron to expand or collapse them. Selecting a category updates the feed and highlights that category without a blue focus border.
+- Open a topic and return to its feed. Pinned topics should appear above the feed and open when tapped. Switch between a narrow and a split window while scrolled mid-feed or reading: keep the loaded feed and roughly the same reading position, without another feed request just for resizing.
 
-New Topic Button
+Safe Areas and Floating Controls
 
-- Open a forum: the full new-topic button appears. Scroll Home; it retracts to a slim, translucent neutral tab at the screen edge and stays there when scrolling stops.
-- Tap the tab to restore the button, then tap it to compose. Drag the full button left and repeat. Check light/dark mode and that the feed stays readable.
+- In split view, post text, images, code, jump controls, and reply actions stay in the content pane. Resize the window and move the compose or floating reply button; neither should land under the category pane or outside the safe area.
+- Minimize the forum, resize its window, drag the floating shortcut to either edge, then restore it. The shortcut stays inside the safe area. If verification or login expiry is pending, the draggable shield/reminder stays in the active content pane when changing tabs or window size.
+- Drag the full compose button to an edge, change its vertical position, leave and reopen the forum, then relaunch. Its position persists; scrolling collapses it to a slim edge tab, and tapping that tab restores it.
 
-SVG Image Stability
+Key Regressions
 
-- On iOS 17/17.5.1, cold-launch and switch SVG-heavy forums; scroll posts with SVG icons, avatars, and emoji. Loading and prefetch must not crash.
-- Open and save a post SVG in the full-screen viewer; confirm sharpness and aspect ratio. Repeat after clearing the cache and upgrading from build 110.
-- With notifications enabled, launch a forum with an SVG icon; no crash.
-
-Unified Cloudflare Verification
-
-- A Cloudflare Challenge while browsing or posting on linux.do, or while adding the forum, should show one draggable edge-snapping shield without an alert.
-- The shield should offer verification, ignoring the prompt, or disabling read-time reporting when applicable. Cancellation or relaunch should preserve the state; completing verification resumes background requests, while the failed action still requires a manual retry.
-- With DoH enabled, the verification page must use the selected DoH configuration and never silently fall back if its proxy fails. DoH-off and iOS 15/16 compatibility should remain unchanged.
-
-Category Filter Button
-
-- The top-left category filter is icon-only: "All Categories" is unselected, a chosen category is selected, and switching back clears the selection.
-
-First Launch and Default Forum
-
-- On a fresh installation, confirm https://discuss.python.org is added and opened automatically. Browse public topics, categories, and search without signing in. Auto-open Last Forum should be enabled by default, with no extra prompt to enable it.
-- Upgrade directly from an older build. Existing forums, sign-in sessions, and the auto-open preference should be preserved. Existing users with an empty forum list should not receive a default forum automatically.
-- Delete the default forum and relaunch. It should not be added again. On an offline first launch, the default forum should still be created, and you should be able to return to the forum list after a loading error.
-
-Direct Cold Launch
-
-- Enable Auto-open Last Forum, enter a forum, fully terminate the app, and launch it again. The forum should appear directly without flashing the forum list or sliding in from the bottom.
-- Disable the setting and relaunch. The app should stay on the forum list. Deleting the last-opened forum should also make the next launch return to the list.
-
-Returning and Switching Forums
-
-- Tap the circular button in the top-right of a forum. Confirm the forum list and floating shortcut appear. Tap the shortcut or the same forum in the list to resume at the previous reading position.
-- Switch between multiple forums. Manual opens should retain their normal animation without moving the window offscreen, hiding it, or leaving a blank page.
-- After returning to the list, confirm you can add or delete forums and open Settings without being sent back into a forum automatically.
-- Check navigation bars, safe areas, light/dark appearance, and font-size changes on both iPhone and iPad.
-
-Opening Notifications
-
-- With the app fully terminated, tap a system notification. It should open the notification's forum and topic, take priority over the last-opened forum, and avoid opening the same page twice.
-- If the notification's forum has been deleted, the app should show an explanation and leave the forum list usable.
+- Public topics, categories, and search work without signing in. Login expiry keeps public topics readable; login or Ignore clears the reminder. Cloudflare verification and read-time reporting use the same shield without an alert.
+- Cold launch with Auto-open Last Forum and open a notification for a different forum. The notification opens its topic once. Minimize and restore a forum without losing the current page; switching forums and returning to Settings still work.
+- On iOS 17/17.5.1, browse posts with SVG icons, avatars, and emoji; open an SVG in the full-screen viewer. Image loading and prefetch should not crash.

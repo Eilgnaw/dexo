@@ -49,18 +49,27 @@ final class MainTabBarController: UITabBarController {
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         let safeBounds = view.bounds.inset(by: view.safeAreaInsets)
+        let horizontalBounds: CGRect
+        if let selectedView = selectedViewController?.viewIfLoaded,
+           selectedView.window === view.window {
+            let pane = selectedView.convert(selectedView.safeAreaLayoutGuide.layoutFrame, to: view)
+            let intersection = safeBounds.intersection(pane)
+            horizontalBounds = intersection.isNull ? safeBounds : intersection
+        } else {
+            horizontalBounds = safeBounds
+        }
         let tabBarFrame = tabBar.convert(tabBar.bounds, to: view)
         let bottom = tabBarFrame.minY > view.bounds.midY
             ? min(safeBounds.maxY - 72, tabBarFrame.minY - 80)
             : safeBounds.maxY - 72
         let availableBounds = bottom - safeBounds.minY >= 96
             ? CGRect(
-                x: safeBounds.minX,
+                x: horizontalBounds.minX,
                 y: safeBounds.minY,
-                width: safeBounds.width,
+                width: horizontalBounds.width,
                 height: bottom - safeBounds.minY
             )
-            : safeBounds
+            : horizontalBounds
         challengeIndicatorHost.updatePlacement(in: availableBounds)
     }
 
