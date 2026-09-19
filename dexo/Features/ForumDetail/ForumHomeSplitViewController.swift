@@ -27,9 +27,18 @@ final class ForumHomeSplitViewController: UISplitViewController, UISplitViewCont
     private var changingColumns = false
     private var lastPaneFrame: CGRect = .null
     private var lastNavigationFrame: CGRect = .null
-    private var lastPortraitPresentation: Bool?
+    private var lastSinglePanePresentation: Bool?
 
-    private var needsCategoryMenu: Bool { compactLayout || hidesCategoriesInPortrait }
+    // iOS 17 can remain expanded in a compact-width window. Only isCollapsed
+    // decides which navigation controller owns the topic stack.
+    private var wantsSinglePane: Bool {
+        traitCollection.horizontalSizeClass == .compact || hidesCategoriesInPortrait
+    }
+    private var needsCategoryMenu: Bool { compactLayout || wantsSinglePane }
+    var hasPushedHomePage: Bool {
+        let navigation = compactLayout ? compactNavigationController : topicNavigationController
+        return navigation.viewControllers.count > 1
+    }
 
     private var hidesCategoriesInPortrait: Bool {
         // An unfolded phone can have a regular-width, portrait-shaped window.
@@ -57,7 +66,7 @@ final class ForumHomeSplitViewController: UISplitViewController, UISplitViewCont
     override func viewDidLoad() {
         super.viewDidLoad()
         delegate = self
-        preferredSplitBehavior = hidesCategoriesInPortrait ? .overlay : .tile
+        preferredSplitBehavior = wantsSinglePane ? .overlay : .tile
         preferredDisplayMode = .oneBesideSecondary
         displayModeButtonVisibility = .never
         primaryBackgroundStyle = .sidebar
@@ -71,8 +80,8 @@ final class ForumHomeSplitViewController: UISplitViewController, UISplitViewCont
         topicNavigationController.delegate = self
         compactNavigationController.delegate = self
         setViewController(compactNavigationController, for: .compact)
-        compactLayout = traitCollection.horizontalSizeClass == .compact || isCollapsed
-        preferredDisplayMode = compactLayout || hidesCategoriesInPortrait
+        compactLayout = isCollapsed
+        preferredDisplayMode = compactLayout || wantsSinglePane
             ? .secondaryOnly : .oneBesideSecondary
         renderNavigation()
         updateForCurrentSize()
@@ -91,6 +100,11 @@ final class ForumHomeSplitViewController: UISplitViewController, UISplitViewCont
         updateForCurrentSize()
     }
 
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        syncTabBarVisibility()
+    }
+
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         updateForCurrentSize()
@@ -105,25 +119,26 @@ final class ForumHomeSplitViewController: UISplitViewController, UISplitViewCont
 
     private func updateForCurrentSize() {
         guard isViewLoaded, !changingColumns else { return }
-        let shouldCompact = traitCollection.horizontalSizeClass == .compact || isCollapsed
+        let shouldCompact = isCollapsed
         if shouldCompact != compactLayout {
             storeVisibleStack()
             compactLayout = shouldCompact
-            preferredDisplayMode = compactLayout || hidesCategoriesInPortrait
+            preferredDisplayMode = compactLayout || wantsSinglePane
                 ? .secondaryOnly : .oneBesideSecondary
             renderNavigation()
             updateCategoryMenuButton()
         }
-        let portrait = hidesCategoriesInPortrait
-        if lastPortraitPresentation != portrait {
-            lastPortraitPresentation = portrait
-            preferredSplitBehavior = portrait ? .overlay : .tile
+        let singlePane = wantsSinglePane
+        if lastSinglePanePresentation != singlePane {
+            lastSinglePanePresentation = singlePane
+            preferredSplitBehavior = singlePane ? .overlay : .tile
             if !compactLayout {
-                preferredDisplayMode = portrait ? .secondaryOnly : .oneBesideSecondary
-                if portrait { hide(.primary) }
+                preferredDisplayMode = singlePane ? .secondaryOnly : .oneBesideSecondary
+                if singlePane { hide(.primary) }
                 else { show(.primary) }
             }
             updateCategoryMenuButton()
+            syncTabBarVisibility()
         }
     }
 
@@ -138,10 +153,13 @@ final class ForumHomeSplitViewController: UISplitViewController, UISplitViewCont
         if !stack.isEmpty { topicStack = stack }
     }
 
-    private func renderNavigation() {
+    private func renderNavigation(syncTabBar: Bool = true) {
         guard isViewLoaded, !changingColumns else { return }
         changingColumns = true
-        defer { changingColumns = false }
+        defer {
+            changingColumns = false
+            if syncTabBar { syncTabBarVisibility() }
+        }
 
         compactNavigationController.setViewControllers([], animated: false)
         sidebarNavigationController.setViewControllers([], animated: false)
@@ -157,7 +175,7 @@ final class ForumHomeSplitViewController: UISplitViewController, UISplitViewCont
             topicNavigationController.setViewControllers(topicStack, animated: false)
             setViewController(sidebarNavigationController, for: .primary)
             setViewController(topicNavigationController, for: .secondary)
-            preferredDisplayMode = hidesCategoriesInPortrait
+            preferredDisplayMode = compactLayout || wantsSinglePane
                 ? .secondaryOnly : .oneBesideSecondary
         }
         updateCategoryMenuButton()
@@ -166,7 +184,7 @@ final class ForumHomeSplitViewController: UISplitViewController, UISplitViewCont
 
     func openTopic(topicID: Int, initialFloor: Int?, animated: Bool) {
         topicStack = [homeViewController]
-        renderNavigation()
+        renderNavigation(syncTabBar: false)
         let detail = TopicDetailControllerFactory.make(api: api, topicId: topicID, initialFloor: initialFloor)
         let navigation = compactLayout ? compactNavigationController : topicNavigationController
         navigation.pushViewController(detail, animated: animated)
@@ -226,20 +244,13 @@ final class ForumHomeSplitViewController: UISplitViewController, UISplitViewCont
     private func updateCategoryMenuButton() {
         guard isViewLoaded else { return }
         homeViewController.setCategoryNavigationButton(needsCategoryMenu ? makeCategoryMenuItem() : nil)
-        let visible = compactLayout
-            ? compactNavigationController.topViewController
-            : topicNavigationController.visibleViewController
-        if visible !== homeViewController {
-            updateCategoryMenuButton(on: visible)
-        }
     }
 
-    private func updateCategoryMenuButton(on controller: UIViewController?) {
-        guard let controller else { return }
-        var items = controller.navigationItem.rightBarButtonItems ?? []
-        items.removeAll { $0.accessibilityIdentifier == "forum.categories.menu" }
-        if needsCategoryMenu { items.insert(makeCategoryMenuItem(), at: 0) }
-        controller.navigationItem.rightBarButtonItems = items
+    private func syncTabBarVisibility(showingDetail: Bool? = nil, animated: Bool = false) {
+        (tabBarController as? ForumTabBarController)?.syncTabBarVisibility(
+            homeShowingDetail: showingDetail,
+            animated: animated
+        )
     }
 
     func navigationController(
@@ -249,8 +260,9 @@ final class ForumHomeSplitViewController: UISplitViewController, UISplitViewCont
     ) {
         if viewController === homeViewController {
             homeViewController.setCategoryNavigationButton(needsCategoryMenu ? makeCategoryMenuItem() : nil)
-        } else {
-            updateCategoryMenuButton(on: viewController)
+        }
+        if !changingColumns {
+            syncTabBarVisibility(showingDetail: viewController !== homeViewController, animated: animated)
         }
     }
 
@@ -265,13 +277,14 @@ final class ForumHomeSplitViewController: UISplitViewController, UISplitViewCont
         } else if !compactLayout, navigationController === topicNavigationController {
             topicStack = navigationController.viewControllers
         }
+        syncTabBarVisibility(showingDetail: viewController !== homeViewController)
     }
 
     func splitViewController(
         _ splitViewController: UISplitViewController,
         displayModeForExpandingToProposedDisplayMode proposedDisplayMode: UISplitViewController.DisplayMode
     ) -> UISplitViewController.DisplayMode {
-        hidesCategoriesInPortrait ? .secondaryOnly : .oneBesideSecondary
+        wantsSinglePane ? .secondaryOnly : .oneBesideSecondary
     }
 
     func splitViewControllerDidCollapse(_ splitViewController: UISplitViewController) {

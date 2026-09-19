@@ -57,6 +57,35 @@ final class ForumTabBarController: UITabBarController, UITabBarControllerDelegat
         }
     }
 
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        syncTabBarVisibility()
+    }
+
+    func syncTabBarVisibility(homeShowingDetail: Bool? = nil, animated: Bool = false) {
+        guard isViewLoaded else { return }
+        let shouldHide: Bool
+        if let home = homeSplitViewController, selectedViewController === home {
+            shouldHide = homeShowingDetail ?? home.hasPushedHomePage
+        } else if let navigation = selectedViewController as? UINavigationController {
+            shouldHide = navigation.viewControllers.count > 1
+                && navigation.topViewController?.hidesBottomBarWhenPushed == true
+        } else {
+            shouldHide = false
+        }
+
+        if #available(iOS 18.0, *) {
+            guard isTabBarHidden != shouldHide else { return }
+            setTabBarHidden(shouldHide, animated: animated)
+        } else {
+            // The home navigation stack sits inside the split view, so its
+            // pushed controller cannot hide this tab bar by itself.
+            guard tabBar.isHidden != shouldHide else { return }
+            tabBar.isHidden = shouldHide
+            view.setNeedsLayout()
+        }
+    }
+
     // MARK: - UITabBarControllerDelegate
 
     // iOS 17 and earlier (viewControllers-based tabs)
@@ -73,11 +102,13 @@ final class ForumTabBarController: UITabBarController, UITabBarControllerDelegat
     }
 
     func tabBarController(_ tabBarController: UITabBarController, didSelect viewController: UIViewController) {
+        syncTabBarVisibility()
         onSelectionChanged?()
     }
 
     @available(iOS 18.0, *)
     func tabBarController(_ tabBarController: UITabBarController, didSelectTab selectedTab: UITab, previousTab: UITab?) {
+        syncTabBarVisibility()
         onSelectionChanged?()
     }
 
