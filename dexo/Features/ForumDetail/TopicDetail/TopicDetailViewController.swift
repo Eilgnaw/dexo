@@ -2492,9 +2492,8 @@ extension LegacyTopicDetailViewController: PostCellDelegate {
             annotatedBlocks: viewModel.parsedBlocks[postId] ?? [],
             tappedURL: url
         )
-        let images = request.imageURLs.map { LightboxImage(imageURL: $0) }
-        guard !images.isEmpty else { return }
-        let controller = ImageBrowserController(images: images, startIndex: request.startIndex)
+        guard !request.imageURLs.isEmpty else { return }
+        let controller = ImageBrowserController(imageURLs: request.imageURLs, startIndex: request.startIndex)
         controller.dynamicBackground = true
 
         if let source = TappableImageContainer.lastTapped {

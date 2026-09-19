@@ -15,3 +15,4 @@ Key Regressions
 - Public topics, categories, and search work without signing in. Login expiry keeps public topics readable; login or Ignore clears the reminder. Cloudflare verification and read-time reporting use the same shield without an alert.
 - Cold launch with Auto-open Last Forum and open a notification for a different forum. The notification opens its topic once. Minimize and restore a forum without losing the current page; switching forums and returning to Settings still work.
 - On iOS 17/17.5.1, browse posts with SVG icons, avatars, and emoji; open an SVG in the full-screen viewer. Image loading and prefetch should not crash.
+- Open a topic with GIF and animated WebP images: they should play in the post and full-screen viewer, while static WebP stays still. Before an image loads, a subtle placeholder appears and then clears, including in dark mode.

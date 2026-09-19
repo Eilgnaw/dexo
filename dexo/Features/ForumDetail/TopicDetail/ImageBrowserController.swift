@@ -3,7 +3,69 @@ import Photos
 import SDWebImage
 import UIKit
 
+/// Lightbox owns a plain UIImageView for sizing and zooming. Overlay an
+/// SDAnimatedImageView for formats whose frames must be decoded on demand.
+nonisolated final class TopicLightboxImage: LightboxImage {
+    @MainActor private weak var animationView: SDAnimatedImageView?
+
+    override func addImageTo(_ imageView: UIImageView, completion: ((UIImage?) -> Void)? = nil) {
+        guard let imageURL, ["gif", "webp"].contains(imageURL.pathExtension.lowercased()) else {
+            super.addImageTo(imageView, completion: completion)
+            return
+        }
+
+        MainActor.assumeIsolated {
+            releaseAnimation()
+            imageView.image = nil
+
+            let animatedView = SDAnimatedImageView(frame: imageView.bounds)
+            animatedView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            animatedView.contentMode = .scaleAspectFit
+            animatedView.clipsToBounds = true
+            animatedView.isUserInteractionEnabled = false
+            imageView.addSubview(animatedView)
+            animationView = animatedView
+
+            animatedView.sd_setImage(
+                with: imageURL,
+                placeholderImage: nil,
+                options: [.retryFailed, .highPriority, .refreshCached, .matchAnimatedImageClass],
+                context: ImageCacheManager.shared.fullScreenContentContext,
+                progress: nil
+            ) { [weak imageView, weak animatedView] image, _, _, _ in
+                MainActor.assumeIsolated {
+                    guard let imageView, let animatedView, animatedView.superview === imageView else { return }
+                    // Lightbox reads this image to calculate the zoomed frame. The
+                    // child view renders the animation without materializing all frames.
+                    imageView.image = image
+                    completion?(image)
+                }
+            }
+        }
+    }
+
+    @MainActor
+    func releaseAnimation() {
+        animationView?.sd_cancelCurrentImageLoad()
+        animationView?.stopAnimating()
+        animationView?.removeFromSuperview()
+        animationView = nil
+    }
+}
+
 final class ImageBrowserController: LightboxController {
+    private let browserImages: [TopicLightboxImage]
+
+    init(imageURLs: [URL], startIndex: Int) {
+        browserImages = imageURLs.map { TopicLightboxImage(imageURL: $0) }
+        super.init(images: browserImages, startIndex: startIndex)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
     private lazy var closeButton: UIButton = {
         let button = UIButton(type: .system)
         let symbol = UIImage.SymbolConfiguration(pointSize: 17, weight: .semibold)
@@ -69,6 +131,7 @@ final class ImageBrowserController: LightboxController {
 
         pageDelegate = self
         imageTapDelegate = self
+        releaseAnimationsOutsidePreload(around: currentPage)
         installCloseButton()
         view.addSubview(saveButton)
         view.addSubview(pageControl)
@@ -87,6 +150,15 @@ final class ImageBrowserController: LightboxController {
         ])
 
         installInteractiveDismissGesture()
+    }
+
+    private func releaseAnimationsOutsidePreload(around page: Int) {
+        guard LightboxConfig.preload > 0 else { return }
+        let lowerBound = max(0, page - LightboxConfig.preload)
+        let upperBound = min(browserImages.count, page + LightboxConfig.preload)
+        for (index, image) in browserImages.enumerated() where index < lowerBound || index >= upperBound {
+            image.releaseAnimation()
+        }
     }
 
     /// Lightbox's built-in pan-to-dismiss fires `dismiss(animated:)` the instant
@@ -355,6 +427,7 @@ final class ImageBrowserController: LightboxController {
 extension ImageBrowserController: LightboxControllerPageDelegate {
     func lightboxController(_ controller: LightboxController, didMoveToPage page: Int) {
         pageControl.currentPage = page
+        releaseAnimationsOutsidePreload(around: page)
     }
 }
 

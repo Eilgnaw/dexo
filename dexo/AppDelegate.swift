@@ -22,6 +22,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         }
 
         SDImageCodersManager.shared.addCoder(SDImageSVGCoder.shared)
+        SDImageCodersManager.shared.addCoder(SDImageAWebPCoder.shared)
 
         // One-time: clear legacy shared cache (all images now use per-type caches)
         if !UserDefaults.standard.bool(forKey: "legacyCacheCleared") {

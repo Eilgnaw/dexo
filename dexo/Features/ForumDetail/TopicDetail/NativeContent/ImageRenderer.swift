@@ -27,8 +27,8 @@ final class TappableImageContainer: UIView {
     var imageURL: URL?
     weak var delegate: PostCellDelegate?
 
-    /// The actual image view. `SDAnimatedImageView` only for formats that can animate
-    /// (GIF); for static JPEG/PNG/WebP we use plain `UIImageView`, which is several
+    /// The actual image view. GIF and WebP may contain animation; for static
+    /// JPEG/PNG we use plain `UIImageView`, which is several
     /// times cheaper to instantiate (no animation state, no frame timer, no
     /// `SDAnimatedImageProvider` plumbing).
     /// Exposed for zoom transition animations.
@@ -46,7 +46,7 @@ final class TappableImageContainer: UIView {
     private static let referenceWidth: CGFloat = 690
 
     private static func isLikelyAnimated(_ url: URL) -> Bool {
-        url.pathExtension.lowercased() == "gif"
+        ["gif", "webp"].contains(url.pathExtension.lowercased())
     }
 
     init(
@@ -94,11 +94,10 @@ final class TappableImageContainer: UIView {
         imageHeightConstraint.isActive = true
 
         backgroundColor = .clear
-        imageView.backgroundColor = .clear
         imageView.layer.cornerRadius = 4
         imageView.clipsToBounds = true
 
-        // Pause GIF animation by default; resumed when visible on screen
+        // Pause animation by default; resumed when visible on screen.
         (imageView as? SDAnimatedImageView)?.autoPlayAnimatedImage = false
 
         startImageLoad()
@@ -109,8 +108,13 @@ final class TappableImageContainer: UIView {
     }
 
     private func startImageLoad() {
-        imageView.sd_setImage(with: sourceURL, placeholderImage: nil, options: [], context: ImageCacheManager.shared.contentContext, progress: nil) { [weak self] image, _, _, _ in
+        let options: SDWebImageOptions = imageView is SDAnimatedImageView ? [.matchAnimatedImageClass] : []
+        imageView.sd_setImage(with: sourceURL, placeholderImage: nil, options: options, context: ImageCacheManager.shared.contentContext, progress: nil) { [weak self] image, _, _, _ in
             guard let self, let image else { return }
+            self.imageView.backgroundColor = .clear
+            if self.window != nil {
+                self.imageView.startAnimating()
+            }
             if !self.hasOriginalSize, image.size.width > 0 {
                 let ratio = self.containerWidth / image.size.width
                 self.imageHeightConstraint.constant = image.size.height * ratio
@@ -221,7 +225,12 @@ final class TappableImageContainer: UIView {
     override func didMoveToWindow() {
         super.didMoveToWindow()
         if window != nil {
-            if imageView.image == nil { startImageLoad() }
+            if imageView.image == nil {
+                imageView.backgroundColor = ThemeManager.shared.imagePlaceholderColor
+                startImageLoad()
+            } else {
+                imageView.backgroundColor = .clear
+            }
             imageView.startAnimating()
         } else {
             imageView.stopAnimating()

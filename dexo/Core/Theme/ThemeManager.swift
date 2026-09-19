@@ -208,6 +208,15 @@ final class ThemeManager {
         }
     }
 
+    /// A quiet gray surface shown only until post content images load.
+    var imagePlaceholderColor: UIColor {
+        UIColor { traits in
+            traits.userInterfaceStyle == .dark
+                ? UIColor(white: 1, alpha: 0.12)
+                : UIColor(white: 0, alpha: 0.08)
+        }
+    }
+
     /// Page background (replaces systemGroupedBackground)
     var backgroundColor: UIColor {
         _ = revision
