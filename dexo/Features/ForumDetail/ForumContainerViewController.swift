@@ -533,11 +533,6 @@ final class ForumContainerViewController: BaseViewController, AuthGating {
         ]
 
         for (i, nav) in tabBarVC.navigationControllers.enumerated() {
-            if i == 0, tabBarVC.homeSplitViewController != nil { continue }
-            guard let rootVC = nav.viewControllers.first else { continue }
-            if i < titles.count {
-                rootVC.title = titles[i]
-            }
             let minimizeItem = UIBarButtonItem(
                 image: UIImage(systemName: "smallcircle.filled.circle"),
                 style: .plain,
@@ -568,6 +563,14 @@ final class ForumContainerViewController: BaseViewController, AuthGating {
 //                )
 //            }
 
+            if i == 0, let homeSplit = tabBarVC.homeSplitViewController {
+                homeSplit.setHomeRightBarButtonItems(rightItems)
+                continue
+            }
+            guard let rootVC = nav.viewControllers.first else { continue }
+            if i < titles.count {
+                rootVC.title = titles[i]
+            }
             rootVC.navigationItem.rightBarButtonItems = rightItems
         }
     }

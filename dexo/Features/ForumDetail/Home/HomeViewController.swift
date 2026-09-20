@@ -201,6 +201,16 @@ final class HomeViewController: ObservableViewController {
         if usesCategorySidebar { navigationItem.leftBarButtonItem = item }
     }
 
+    func setContainerRightBarItems(_ items: [UIBarButtonItem]) {
+        inheritedRightBarItems = items
+        if isViewLoaded {
+            navigationItem.rightBarButtonItems = viewModel.requiresLogin
+                ? items : items + [Self.makeRightBarSpacer(), sortBarButton]
+        } else {
+            navigationItem.rightBarButtonItems = items
+        }
+    }
+
     private var containerRightBarItems: [UIBarButtonItem] {
         inheritedRightBarItems
     }

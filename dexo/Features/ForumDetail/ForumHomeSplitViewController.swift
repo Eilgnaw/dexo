@@ -197,6 +197,10 @@ final class ForumHomeSplitViewController: UISplitViewController, UISplitViewCont
         return true
     }
 
+    func setHomeRightBarButtonItems(_ items: [UIBarButtonItem]) {
+        homeViewController.setContainerRightBarItems(items)
+    }
+
     func activeNavigationBarFrame(in coordinateView: UIView) -> CGRect {
         let navigation = compactLayout ? compactNavigationController : topicNavigationController
         let bar = navigation.navigationBar
