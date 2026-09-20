@@ -7,6 +7,7 @@ import UIKit
 /// SDAnimatedImageView for formats whose frames must be decoded on demand.
 nonisolated final class TopicLightboxImage: LightboxImage {
     @MainActor private weak var animationView: SDAnimatedImageView?
+    @MainActor private var playbackActive = false
 
     override func addImageTo(_ imageView: UIImageView, completion: ((UIImage?) -> Void)? = nil) {
         guard let imageURL, ["gif", "webp"].contains(imageURL.pathExtension.lowercased()) else {
@@ -23,6 +24,7 @@ nonisolated final class TopicLightboxImage: LightboxImage {
             animatedView.contentMode = .scaleAspectFit
             animatedView.clipsToBounds = true
             animatedView.isUserInteractionEnabled = false
+            animatedView.autoPlayAnimatedImage = playbackActive
             imageView.addSubview(animatedView)
             animationView = animatedView
 
@@ -41,6 +43,17 @@ nonisolated final class TopicLightboxImage: LightboxImage {
                     completion?(image)
                 }
             }
+        }
+    }
+
+    @MainActor
+    func setPlaybackActive(_ active: Bool) {
+        playbackActive = active
+        animationView?.autoPlayAnimatedImage = active
+        if active {
+            if animationView?.window != nil { animationView?.startAnimating() }
+        } else {
+            animationView?.stopAnimating()
         }
     }
 
@@ -132,6 +145,7 @@ final class ImageBrowserController: LightboxController {
         pageDelegate = self
         imageTapDelegate = self
         releaseAnimationsOutsidePreload(around: currentPage)
+        updatePageAnimationPlayback()
         installCloseButton()
         view.addSubview(saveButton)
         view.addSubview(pageControl)
@@ -150,6 +164,22 @@ final class ImageBrowserController: LightboxController {
         ])
 
         installInteractiveDismissGesture()
+    }
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        updatePageAnimationPlayback()
+    }
+
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        browserImages.forEach { $0.setPlaybackActive(false) }
+    }
+
+    private func updatePageAnimationPlayback() {
+        for (index, image) in browserImages.enumerated() {
+            image.setPlaybackActive(index == currentPage)
+        }
     }
 
     private func releaseAnimationsOutsidePreload(around page: Int) {
@@ -428,6 +458,7 @@ extension ImageBrowserController: LightboxControllerPageDelegate {
     func lightboxController(_ controller: LightboxController, didMoveToPage page: Int) {
         pageControl.currentPage = page
         releaseAnimationsOutsidePreload(around: page)
+        updatePageAnimationPlayback()
     }
 }
 

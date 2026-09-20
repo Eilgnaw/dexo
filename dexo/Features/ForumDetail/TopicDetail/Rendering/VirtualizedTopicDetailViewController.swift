@@ -1648,6 +1648,9 @@ extension VirtualizedTopicDetailViewController: UICollectionViewDelegate, UIColl
     }
 
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        if scrollView === collectionView {
+            TappableImageContainer.updateVisibleAnimations(in: collectionView, paused: true)
+        }
         loadEarlierArmed = true
         lastScrollOffset = scrollView.contentOffset.y
         isReturningToTop = false
@@ -1658,6 +1661,9 @@ extension VirtualizedTopicDetailViewController: UICollectionViewDelegate, UIColl
 
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
         if !decelerate {
+            if scrollView === collectionView {
+                TappableImageContainer.updateVisibleAnimations(in: collectionView, paused: false)
+            }
             if flushPendingLoadEarlierIfReady() {
                 scheduleDebouncedReadFlush()
                 return
@@ -1668,6 +1674,9 @@ extension VirtualizedTopicDetailViewController: UICollectionViewDelegate, UIColl
     }
 
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+        if scrollView === collectionView {
+            TappableImageContainer.updateVisibleAnimations(in: collectionView, paused: false)
+        }
         if flushPendingLoadEarlierIfReady() {
             scheduleDebouncedReadFlush()
             return
@@ -1687,6 +1696,11 @@ extension VirtualizedTopicDetailViewController: UICollectionViewDelegate, UIColl
     }
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        if scrollView === collectionView,
+           !scrollView.isTracking, !scrollView.isDragging, !scrollView.isDecelerating
+        {
+            TappableImageContainer.updateVisibleAnimations(in: collectionView, paused: false)
+        }
         let currentOffset = scrollView.contentOffset.y
         let isMovingTowardEarlierPosts = currentOffset < lastScrollOffset
         lastScrollOffset = currentOffset

@@ -2262,6 +2262,11 @@ extension LegacyTopicDetailViewController: UITableViewDelegate {
             let ms = (CACurrentMediaTime() - scrollStart) * 1000
             if ms > 2 { FrameDropDetector.shared.log("scrollViewDidScroll \(String(format: "%.1f", ms))ms") }
         }
+        if scrollView === tableView,
+           !scrollView.isTracking, !scrollView.isDragging, !scrollView.isDecelerating
+        {
+            TappableImageContainer.updateVisibleAnimations(in: tableView, paused: fastPathScrollToken != nil)
+        }
         guard let header = tableView.tableHeaderView else { return }
         let headerBottom = header.frame.maxY
         let offsetY = scrollView.contentOffset.y + scrollView.safeAreaInsets.top
@@ -2447,18 +2452,27 @@ extension LegacyTopicDetailViewController: UITableViewDelegate {
     // beat so newly-revealed posts cross the min-visible threshold, then flush.
     // The pending flush is cancelled if the user starts scrolling again before it fires.
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+        if scrollView === tableView {
+            TappableImageContainer.updateVisibleAnimations(in: tableView, paused: false)
+        }
         scheduleDebouncedReadFlush()
         flushPendingLoadEarlierIfReady()
     }
 
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
         if !decelerate {
+            if scrollView === tableView {
+                TappableImageContainer.updateVisibleAnimations(in: tableView, paused: false)
+            }
             scheduleDebouncedReadFlush()
             flushPendingLoadEarlierIfReady()
         }
     }
 
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        if scrollView === tableView {
+            TappableImageContainer.updateVisibleAnimations(in: tableView, paused: true)
+        }
         cancelPendingReadFlush()
         // The user is taking over — drop any in-flight fast-path scroll so the
         // animated jump doesn't keep gating load-earlier and the next user
@@ -2479,6 +2493,9 @@ extension LegacyTopicDetailViewController: UITableViewDelegate {
         if let token = fastPathScrollToken {
             fastPathScrollToken = nil
             endPaginationContext(token)
+        }
+        if scrollView === tableView {
+            TappableImageContainer.updateVisibleAnimations(in: tableView, paused: false)
         }
         lastScrollOffset = scrollView.contentOffset.y
     }

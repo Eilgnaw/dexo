@@ -112,9 +112,7 @@ final class TappableImageContainer: UIView {
         imageView.sd_setImage(with: sourceURL, placeholderImage: nil, options: options, context: ImageCacheManager.shared.contentContext, progress: nil) { [weak self] image, _, _, _ in
             guard let self, let image else { return }
             self.imageView.backgroundColor = .clear
-            if self.window != nil {
-                self.imageView.startAnimating()
-            }
+            self.updateAnimationPlayback()
             if !self.hasOriginalSize, image.size.width > 0 {
                 let ratio = self.containerWidth / image.size.width
                 self.imageHeightConstraint.constant = image.size.height * ratio
@@ -212,14 +210,49 @@ final class TappableImageContainer: UIView {
         return nil
     }
 
-    // MARK: - GIF Animation Control
+    // MARK: - Animation Control
 
-    func startAnimating() {
-        imageView.startAnimating()
+    private var shouldPlayAnimation: Bool {
+        guard window != nil, !isHidden, alpha > 0, !bounds.isEmpty else { return false }
+        var ancestor = superview
+        while let view = ancestor {
+            if view.isHidden || view.alpha <= 0 { return false }
+            if let scrollView = view as? UIScrollView,
+               scrollView is UITableView || scrollView is UICollectionView
+            {
+                if scrollView.isTracking || scrollView.isDragging || scrollView.isDecelerating {
+                    return false
+                }
+                if !convert(bounds, to: scrollView).intersects(scrollView.bounds) {
+                    return false
+                }
+            }
+            ancestor = view.superview
+        }
+        return true
     }
 
-    func stopAnimating() {
-        imageView.stopAnimating()
+    private func updateAnimationPlayback() {
+        guard let animatedView = imageView as? SDAnimatedImageView else { return }
+        if shouldPlayAnimation {
+            if !animatedView.isAnimating { animatedView.startAnimating() }
+        } else if animatedView.isAnimating {
+            animatedView.stopAnimating()
+        }
+    }
+
+    static func updateVisibleAnimations(in root: UIView, paused: Bool) {
+        if let image = root as? TappableImageContainer {
+            if paused {
+                (image.imageView as? SDAnimatedImageView)?.stopAnimating()
+            } else {
+                image.updateAnimationPlayback()
+            }
+            return
+        }
+        for subview in root.subviews {
+            updateVisibleAnimations(in: subview, paused: paused)
+        }
     }
 
     override func didMoveToWindow() {
@@ -231,10 +264,15 @@ final class TappableImageContainer: UIView {
             } else {
                 imageView.backgroundColor = .clear
             }
-            imageView.startAnimating()
+            updateAnimationPlayback()
         } else {
-            imageView.stopAnimating()
+            (imageView as? SDAnimatedImageView)?.stopAnimating()
         }
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        updateAnimationPlayback()
     }
 }
 

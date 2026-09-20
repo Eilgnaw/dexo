@@ -1,2 +1,3 @@
 Open a forum on iOS 17, a regular iPhone, an iPad, and an unfolded foldable: the topic list and navigation bar should appear, with a category menu in portrait and two columns in wide windows.
 The tab bar should stay hidden in a topic and its child pages, with no category menu on the detail toolbar, then return when you go back to the topic list.
+In a topic with GIF or animated WebP images, scrolling pauses playback; it resumes only when the image is visible and scrolling stops. In the full-screen viewer, only the current image plays—not preloaded neighboring images.
