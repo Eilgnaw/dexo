@@ -1,6 +1,13 @@
 import CookedHTML
 import UIKit
 
+enum SpoilerAppearance {
+    /// Keeps the concealed content visibly present without leaving text or
+    /// image details readable. The ultra-thin material also distinguishes a
+    /// spoiler from the flat gray image-loading placeholder.
+    static let blurStyle: UIBlurEffect.Style = .systemUltraThinMaterial
+}
+
 enum SpoilerRenderer: BlockRenderer {
     static func canRender(_ block: ContentBlock) -> Bool {
         if case .spoiler = block { return true }
@@ -25,7 +32,11 @@ class SpoilerOverlayView: UIView {
     private(set) var isRevealed = false
     var onRevealChange: ((Bool) -> Void)?
 
-    init(contentView: UIView, cornerRadius: CGFloat = 0, blurStyle: UIBlurEffect.Style = .systemThinMaterial) {
+    init(
+        contentView: UIView,
+        cornerRadius: CGFloat = 0,
+        blurStyle: UIBlurEffect.Style = SpoilerAppearance.blurStyle
+    ) {
         self.contentView = contentView
         blurView = UIVisualEffectView(effect: UIBlurEffect(style: blurStyle))
         super.init(frame: .zero)

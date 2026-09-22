@@ -20,7 +20,7 @@ final class LinkTextView: UITextView {
     /// Full-intensity blur style used for inline spoilers. We keep `effect`
     /// static and toggle `alpha` — animating `effect` via UIView.animate is
     /// unreliable on iOS and causes the "reveal flashes then snaps back" bug.
-    private static let blurStyle: UIBlurEffect.Style = .systemThinMaterial
+    private static let blurStyle = SpoilerAppearance.blurStyle
 
     override var selectedTextRange: UITextRange? {
         get { nil }
