@@ -97,8 +97,13 @@ final class TappableImageContainer: UIView {
         imageView.layer.cornerRadius = 4
         imageView.clipsToBounds = true
 
-        // Pause animation by default; resumed when visible on screen.
-        (imageView as? SDAnimatedImageView)?.autoPlayAnimatedImage = false
+        if let animatedView = imageView as? SDAnimatedImageView {
+            // A 1536px RGBA frame is about 9 MiB. Keep at most roughly one
+            // decoded frame ahead and release it as soon as playback stops.
+            animatedView.autoPlayAnimatedImage = false
+            animatedView.maxBufferSize = UInt(ImageCacheManager.contentAnimationMaxBufferBytes)
+            animatedView.clearBufferWhenStopped = true
+        }
 
         startImageLoad()
 
@@ -108,8 +113,25 @@ final class TappableImageContainer: UIView {
     }
 
     private func startImageLoad() {
-        let options: SDWebImageOptions = imageView is SDAnimatedImageView ? [.matchAnimatedImageClass] : []
-        imageView.sd_setImage(with: sourceURL, placeholderImage: nil, options: options, context: ImageCacheManager.shared.contentContext, progress: nil) { [weak self] image, _, _, _ in
+        let isAnimated = imageView is SDAnimatedImageView
+        let options: SDWebImageOptions = isAnimated ? [.matchAnimatedImageClass] : []
+        let context = isAnimated
+            ? ImageCacheManager.shared.animatedContentContext
+            : ImageCacheManager.shared.contentContext
+        imageView.sd_setImage(
+            with: sourceURL,
+            placeholderImage: nil,
+            options: options,
+            context: context,
+            progress: { [weak imageView] received, expected, _ in
+                guard isAnimated,
+                      max(Int64(received), Int64(expected)) > ImageCacheManager.maxAnimatedDownloadBytes
+                else { return }
+                DispatchQueue.main.async {
+                    imageView?.sd_cancelCurrentImageLoad()
+                }
+            }
+        ) { [weak self] image, _, _, _ in
             guard let self, let image else { return }
             self.imageView.backgroundColor = .clear
             self.updateAnimationPlayback()

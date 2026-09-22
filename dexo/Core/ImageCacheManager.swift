@@ -3,6 +3,9 @@ import WebKit
 
 final class ImageCacheManager {
     static let shared = ImageCacheManager()
+    nonisolated static let maxAnimatedDownloadBytes: Int64 = 64 * 1024 * 1024
+    nonisolated static let contentAnimationMaxBufferBytes = 12 * 1024 * 1024
+    nonisolated static let fullScreenAnimationMaxBufferBytes = 32 * 1024 * 1024
 
     /// User avatars & flair badges — moderate retention.
     let avatarCache: SDImageCache
@@ -16,6 +19,8 @@ final class ImageCacheManager {
     let emojiContext: [SDWebImageContextOption: Any]
     let contentContext: [SDWebImageContextOption: Any]
     let fullScreenContentContext: [SDWebImageContextOption: Any]
+    let animatedContentContext: [SDWebImageContextOption: Any]
+    let fullScreenAnimatedContentContext: [SDWebImageContextOption: Any]
 
     private init() {
         avatarCache = SDImageCache(namespace: "avatars")
@@ -57,6 +62,32 @@ final class ImageCacheManager {
         fullScreenContentContext = [
             .imageCache: contentCache,
             .imageThumbnailPixelSize: NSValue(cgSize: CGSize(width: 4096, height: 4096)),
+        ]
+
+        // Animated images keep their compressed source data plus a decoded
+        // frame buffer. Give them a smaller per-frame pixel ceiling than
+        // static images, keep decoded results out of the shared memory cache,
+        // and reject responses that declare an unreasonable payload size.
+        // Unknown/chunked lengths are also stopped by the progress callbacks
+        // at each call site once they cross the same byte limit.
+        let animatedResponseModifier = SDWebImageDownloaderResponseModifier { response in
+            let length = response.expectedContentLength
+            guard length < 0 || length <= Self.maxAnimatedDownloadBytes else { return nil }
+            return response
+        }
+        animatedContentContext = [
+            .imageCache: contentCache,
+            .imageThumbnailPixelSize: NSValue(cgSize: CGSize(width: 1536, height: 1536)),
+            .queryCacheType: SDImageCacheType.disk.rawValue,
+            .storeCacheType: SDImageCacheType.disk.rawValue,
+            .downloadResponseModifier: animatedResponseModifier,
+        ]
+        fullScreenAnimatedContentContext = [
+            .imageCache: contentCache,
+            .imageThumbnailPixelSize: NSValue(cgSize: CGSize(width: 2048, height: 2048)),
+            .queryCacheType: SDImageCacheType.disk.rawValue,
+            .storeCacheType: SDImageCacheType.disk.rawValue,
+            .downloadResponseModifier: animatedResponseModifier,
         ]
     }
 

@@ -36,10 +36,12 @@ final class ForumTabBarController: UITabBarController, UITabBarControllerDelegat
 
         let meVC = MeViewController(api: api, authGate: authGate)
         let meNav = ForumNavigationController(rootViewController: meVC)
+        meNav.delegate = self
         meNav.tabBarItem = UITabBarItem(title: String(localized: "tab.me"), image: UIImage(systemName: "person"), tag: 1)
 
         let searchVC = SearchViewController(api: api)
         let searchNav = ForumNavigationController(rootViewController: searchVC)
+        searchNav.delegate = self
         searchNav.tabBarItem = UITabBarItem(title: String(localized: "search.title"), image: UIImage(systemName: "magnifyingglass"), tag: 2)
 
         navigationControllers = [homeRoot.topicNavigationController, meNav, searchNav]
@@ -62,14 +64,19 @@ final class ForumTabBarController: UITabBarController, UITabBarControllerDelegat
         syncTabBarVisibility()
     }
 
-    func syncTabBarVisibility(homeShowingDetail: Bool? = nil, animated: Bool = false) {
+    func syncTabBarVisibility(
+        homeShowingDetail: Bool? = nil,
+        showing viewController: UIViewController? = nil,
+        animated: Bool = false
+    ) {
         guard isViewLoaded else { return }
         let shouldHide: Bool
         if let home = homeSplitViewController, selectedViewController === home {
             shouldHide = homeShowingDetail ?? home.hasPushedHomePage
         } else if let navigation = selectedViewController as? UINavigationController {
-            shouldHide = navigation.viewControllers.count > 1
-                && navigation.topViewController?.hidesBottomBarWhenPushed == true
+            let visibleController = viewController ?? navigation.topViewController
+            shouldHide = visibleController !== navigation.viewControllers.first
+                && visibleController?.hidesBottomBarWhenPushed == true
         } else {
             shouldHide = false
         }
@@ -125,6 +132,27 @@ final class ForumTabBarController: UITabBarController, UITabBarControllerDelegat
 
         homeVC.scrollToTopOrRefresh()
         return true
+    }
+}
+
+extension ForumTabBarController: UINavigationControllerDelegate {
+    func navigationController(
+        _ navigationController: UINavigationController,
+        willShow viewController: UIViewController,
+        animated: Bool
+    ) {
+        guard selectedViewController === navigationController else { return }
+        syncTabBarVisibility(showing: viewController, animated: animated)
+    }
+
+    func navigationController(
+        _ navigationController: UINavigationController,
+        didShow viewController: UIViewController,
+        animated: Bool
+    ) {
+        guard selectedViewController === navigationController else { return }
+        // Also reconcile the final page when an interactive pop is cancelled.
+        syncTabBarVisibility(showing: viewController)
     }
 }
 

@@ -25,6 +25,8 @@ nonisolated final class TopicLightboxImage: LightboxImage {
             animatedView.clipsToBounds = true
             animatedView.isUserInteractionEnabled = false
             animatedView.autoPlayAnimatedImage = playbackActive
+            animatedView.maxBufferSize = UInt(ImageCacheManager.fullScreenAnimationMaxBufferBytes)
+            animatedView.clearBufferWhenStopped = true
             imageView.addSubview(animatedView)
             animationView = animatedView
 
@@ -32,8 +34,15 @@ nonisolated final class TopicLightboxImage: LightboxImage {
                 with: imageURL,
                 placeholderImage: nil,
                 options: [.retryFailed, .highPriority, .refreshCached, .matchAnimatedImageClass],
-                context: ImageCacheManager.shared.fullScreenContentContext,
-                progress: nil
+                context: ImageCacheManager.shared.fullScreenAnimatedContentContext,
+                progress: { [weak animatedView] received, expected, _ in
+                    guard max(Int64(received), Int64(expected)) > ImageCacheManager.maxAnimatedDownloadBytes else {
+                        return
+                    }
+                    DispatchQueue.main.async {
+                        animatedView?.sd_cancelCurrentImageLoad()
+                    }
+                }
             ) { [weak imageView, weak animatedView] image, _, _, _ in
                 MainActor.assumeIsolated {
                     guard let imageView, let animatedView, animatedView.superview === imageView else { return }
@@ -119,6 +128,7 @@ final class ImageBrowserController: LightboxController {
     }()
 
     private var isSaving = false
+    private var saveImageOperation: SDWebImageOperation?
 
     // MARK: - Interactive dismiss
 
@@ -373,13 +383,29 @@ final class ImageBrowserController: LightboxController {
 
         guard let url = target.imageURL else { return }
         isSaving = true
-        SDWebImageManager.shared.loadImage(
+        let usesAnimatedPipeline = ["gif", "webp"].contains(url.pathExtension.lowercased())
+        saveImageOperation = SDWebImageManager.shared.loadImage(
             with: url,
-            options: [],
-            context: ImageCacheManager.shared.fullScreenContentContext,
-            progress: nil
+            options: usesAnimatedPipeline ? [.decodeFirstFrameOnly] : [],
+            context: usesAnimatedPipeline
+                ? ImageCacheManager.shared.fullScreenAnimatedContentContext
+                : ImageCacheManager.shared.fullScreenContentContext,
+            progress: { [weak self] received, expected, _ in
+                guard usesAnimatedPipeline,
+                      max(Int64(received), Int64(expected)) > ImageCacheManager.maxAnimatedDownloadBytes
+                else { return }
+                DispatchQueue.main.async {
+                    guard let self, self.isSaving else { return }
+                    self.saveImageOperation?.cancel()
+                    self.saveImageOperation = nil
+                    self.isSaving = false
+                    self.showToast(String(localized: "image_browser.save.failed"))
+                }
+            }
         ) { [weak self] image, _, _, _, _, _ in
             guard let self else { return }
+            guard self.isSaving else { return }
+            self.saveImageOperation = nil
             self.isSaving = false
             guard let image else {
                 self.showToast(String(localized: "image_browser.save.failed"))
