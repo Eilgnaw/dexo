@@ -180,8 +180,8 @@ final class LegacyTopicDetailViewController: ObservableViewController {
     private var lastScrollOffset: CGFloat = 0
     /// VC-level cache of rendered content views keyed by post ID.
     /// Avoids re-creating the entire view tree when scrolling back to a post.
-    /// Legacy-only cache. Keeping it bounded is essential now that a cached
-    /// AsyncTextView can retain a multi-megabyte bitmap.
+    /// Legacy-only cache. Keeping it bounded prevents large topic histories
+    /// from retaining every rendered text view tree.
     private let contentViewCache = LRUCache<Int, [UIView]>(capacity: 18)
     /// Tracks whether a pagination flow (jump, load-earlier, load-more, reverse,
     /// summary) is currently in flight. `updateUI` defers snapshot application
@@ -725,7 +725,7 @@ final class LegacyTopicDetailViewController: ObservableViewController {
     /// Rebuilds only rendered content, not topic data or height measurements.
     /// This is needed because the topic controller intentionally keeps rendered
     /// view trees alive across cell reuse, while some renderers capture colors
-    /// at render time and AsyncTextView stores a rasterized bitmap.
+    /// at render time.
     private func refreshThemeAppearance() {
         guard isViewLoaded else { return }
         contentViewCache.removeAll()
@@ -3032,26 +3032,6 @@ extension LegacyTopicDetailViewController: PostCellDelegate {
         })
         alert.addAction(UIAlertAction(title: String(localized: "action.cancel"), style: .cancel))
         present(alert, animated: true)
-    }
-
-    func postCell(didLongPressPost post: DiscourseTopicDetail.Post) {
-        Task {
-            do {
-                let detail = try await api.fetchPost(id: post.id)
-                guard let raw = detail.raw, !raw.isEmpty else { return }
-                let vc = RawContentViewController(raw: raw, username: post.username, floorNumber: post.postNumber)
-                let nav = UINavigationController(rootViewController: vc)
-                if let sheet = nav.sheetPresentationController {
-                    sheet.detents = [.medium(), .large()]
-                    sheet.prefersGrabberVisible = true
-                }
-                present(nav, animated: true)
-            } catch {
-                let alert = UIAlertController(title: nil, message: error.localizedDescription, preferredStyle: .alert)
-                alert.addAction(UIAlertAction(title: String(localized: "action.ok"), style: .default))
-                present(alert, animated: true)
-            }
-        }
     }
 
     private func cellForPost(id postId: Int) -> UITableViewCell? {

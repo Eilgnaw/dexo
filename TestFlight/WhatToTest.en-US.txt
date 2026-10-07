@@ -1,3 +1,4 @@
-Open a topic from Home or Search, then return by button or swipe: the tab bar should reappear; cancelling the swipe should keep it hidden.
-For GIF or animated WebP images, scrolling pauses playback and only visible/current images play; large files should not freeze or crash the app.
-Check inline and block spoilers in light and dark mode: hidden content should look translucent and blurred, remain unreadable, and reveal when tapped.
+Long-press or double-tap words in post content, including Markdown headings, paragraphs, lists, code and images. Selection should appear after about 0.45 seconds without lifting your finger; keep holding to select across blocks and scroll automatically near the screen edges.
+Drag either selection handle to adjust the range: selection must not disappear, embedded quotes stay independent, and one tap outside should clear both selection and menu. No extra handles should appear.
+Check that Copy, Select All, Look Up, Translate and Share use the actual selected text. The topic title is excluded; links and image previews should still work.
+Check smooth scrolling in long posts, and regress the tab bar when returning to Home/Search, visibility-based GIF/WebP playback, and spoiler conceal/reveal in light and dark mode.

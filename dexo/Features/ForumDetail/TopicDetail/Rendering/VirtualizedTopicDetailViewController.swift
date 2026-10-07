@@ -2,11 +2,159 @@ import CookedHTML
 import Lightbox
 import SDWebImage
 import UIKit
+import UIKit.UIGestureRecognizerSubclass
+
+/// Owns the entire contact, including the stationary hold. The timer runs in
+/// common modes, and reports selection directly instead of waiting for UIKit's
+/// deferred text-gesture action delivery. Lives above the reusable cells.
+private final class TopicSelectionPressGesture: UIGestureRecognizer {
+    var beginsImmediately = false
+    var onPhase: ((UIGestureRecognizer.State, CGPoint) -> Void)?
+    private var holdTimer: Timer?
+    private var initialPoint = CGPoint.zero
+    private var currentPoint = CGPoint.zero
+    private var recognized = false
+    private var downTime: TimeInterval = 0
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        guard touches.count == 1, let touch = touches.first, !recognized else {
+            cancelContact()
+            return
+        }
+        initialPoint = touch.location(in: view)
+        currentPoint = initialPoint
+        downTime = ProcessInfo.processInfo.systemUptime
+        trace("down")
+        if beginsImmediately {
+            recognizeHold()
+        } else {
+            let timer = Timer(timeInterval: 0.45, repeats: false) { [weak self] _ in
+                self?.recognizeHold()
+            }
+            holdTimer = timer
+            RunLoop.main.add(timer, forMode: .common)
+        }
+    }
+
+    private func recognizeHold() {
+        guard state == .possible else { return }
+        holdTimer?.invalidate()
+        holdTimer = nil
+        recognized = true
+        state = .began
+        trace("began")
+        onPhase?(.began, currentPoint)
+    }
+
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
+        guard let touch = touches.first else { return }
+        currentPoint = touch.location(in: view)
+        if recognized {
+            state = .changed
+            onPhase?(.changed, currentPoint)
+        } else if hypot(currentPoint.x - initialPoint.x, currentPoint.y - initialPoint.y) > 10 {
+            holdTimer?.invalidate()
+            holdTimer = nil
+            state = .failed
+        }
+    }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
+        if let touch = touches.first { currentPoint = touch.location(in: view) }
+        holdTimer?.invalidate()
+        holdTimer = nil
+        trace("up")
+        if recognized {
+            state = .ended
+            onPhase?(.ended, currentPoint)
+        } else {
+            state = .failed
+        }
+    }
+
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) {
+        cancelContact()
+    }
+
+    private func cancelContact() {
+        holdTimer?.invalidate()
+        holdTimer = nil
+        if recognized {
+            state = .cancelled
+            onPhase?(.cancelled, currentPoint)
+        } else {
+            state = .failed
+        }
+    }
+
+    override func reset() {
+        holdTimer?.invalidate()
+        holdTimer = nil
+        recognized = false
+        beginsImmediately = false
+        super.reset()
+    }
+
+    override func canBePrevented(by preventingGestureRecognizer: UIGestureRecognizer) -> Bool {
+        // A normal scroll wins before the hold; after recognition the same
+        // finger owns selection until lifted, even when crossing cell borders.
+        !recognized && preventingGestureRecognizer is UIPanGestureRecognizer
+    }
+
+    private func trace(_ phase: String) {
+        #if DEBUG
+        NSLog("[SelectionTrace] %@ +%.3fs", phase, ProcessInfo.processInfo.systemUptime - downTime)
+        #endif
+    }
+}
 
 enum TopicDetailControllerFactory {
     static func make(api: DiscourseAPI, topicId: Int, initialFloor: Int? = nil) -> UIViewController {
         VirtualizedTopicDetailViewController(api: api, topicId: topicId, initialFloor: initialFloor)
     }
+}
+
+private final class TopicSelectionHandleView: UIView {
+    private let isStart: Bool
+    private let stem = UIView()
+    private let knob = UIView()
+    private var caretHeight: CGFloat = 20
+
+    init(isStart: Bool) {
+        self.isStart = isStart
+        super.init(frame: CGRect(x: 0, y: 0, width: 28, height: 25))
+        isHidden = true
+        backgroundColor = .clear
+        stem.backgroundColor = .systemBlue
+        knob.backgroundColor = .systemBlue
+        knob.layer.cornerRadius = 6
+        addSubview(stem)
+        addSubview(knob)
+    }
+
+    @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        stem.frame = CGRect(x: 13, y: isStart ? 5 : 0, width: 2, height: caretHeight)
+        knob.frame = CGRect(x: 9, y: isStart ? 0 : caretHeight - 5, width: 10, height: 10)
+        knob.layer.cornerRadius = 5
+    }
+
+    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+        bounds.insetBy(dx: -10, dy: -8).contains(point)
+    }
+
+    func position(caretRect: CGRect) {
+        caretHeight = max(12, caretRect.height)
+        bounds.size = CGSize(width: 28, height: caretHeight + 5)
+        frame.origin = CGPoint(
+            x: caretRect.minX - bounds.width * 0.5,
+            y: isStart ? caretRect.minY - 5 : caretRect.minY
+        )
+        setNeedsLayout()
+    }
+
 }
 
 nonisolated enum VirtualTopicItem: Hashable, Sendable {
@@ -21,20 +169,17 @@ nonisolated enum VirtualTopicItem: Hashable, Sendable {
     case loadMoreChildren(Int)
     case paginationStatus
 
-    var longPressPostId: Int? {
+    var postAnchorId: Int? {
         switch self {
         case .header(let postId), .footer(let postId), .boosts(let postId), .collapsed(let postId):
             return postId
         case .unit(let id):
             return id.postId
-        case .title, .acceptedAnswer, .blocked, .loadMoreChildren, .paginationStatus:
+        case .blocked(let postId):
+            return postId
+        case .title, .acceptedAnswer, .loadMoreChildren, .paginationStatus:
             return nil
         }
-    }
-
-    var postAnchorId: Int? {
-        if case .blocked(let postId) = self { return postId }
-        return longPressPostId
     }
 }
 
@@ -59,6 +204,23 @@ nonisolated enum VirtualTopicPrependAnchorSelector {
 /// header/body/footer items, so a very tall post never forces UIKit to create
 /// or draw its complete view tree in one frame.
 final class VirtualizedTopicDetailViewController: ObservableViewController, UIGestureRecognizerDelegate {
+    private enum SelectionNodeKey: Hashable {
+        case unit(RenderUnitID)
+    }
+
+    private struct SelectionNode {
+        let key: SelectionNodeKey
+        let text: String
+        let range: NSRange
+    }
+
+    private struct SelectionSession {
+        let nodes: [SelectionNode]
+        let text: String
+        let anchorWordRange: NSRange
+        var selectedRange: NSRange
+    }
+
     private let api: DiscourseAPI
     private let topicId: Int
     private let baseURL: String
@@ -114,6 +276,42 @@ final class VirtualizedTopicDetailViewController: ObservableViewController, UIGe
     private var modeGeneration: UInt = 0
     private var contentOperationGeneration: UInt = 0
     private var scrollToTopAfterSnapshot = false
+    private var selectionSession: SelectionSession?
+    private let selectionFeedback = UISelectionFeedbackGenerator()
+    private enum SelectionDrag { case extending, startHandle, endHandle }
+    private var selectionDrag: SelectionDrag?
+    private var pendingHandleDrag: SelectionDrag?
+    private var selectionFingerPoint = CGPoint.zero
+    private var selectionAutoScrollTimer: Timer?
+    private var suspendedSelectionPans: [UIPanGestureRecognizer] = []
+    private var selectionMenuState = TopicSelectionMenuState()
+    private lazy var selectionPressGesture: TopicSelectionPressGesture = {
+        let gesture = TopicSelectionPressGesture()
+        gesture.delegate = self
+        gesture.cancelsTouchesInView = true
+        gesture.onPhase = { [weak self] phase, point in
+            self?.handleSelectionContact(phase, at: point)
+        }
+        return gesture
+    }()
+    private lazy var selectionDoubleTapGesture: UITapGestureRecognizer = {
+        let gesture = UITapGestureRecognizer(target: self, action: #selector(handleContentDoubleTap(_:)))
+        gesture.numberOfTapsRequired = 2
+        gesture.delegate = self
+        return gesture
+    }()
+    private lazy var selectionDismissTapGesture: UITapGestureRecognizer = {
+        let gesture = UITapGestureRecognizer(target: self, action: #selector(dismissContentSelection(_:)))
+        gesture.cancelsTouchesInView = false
+        gesture.delegate = self
+        gesture.require(toFail: selectionPressGesture)
+        gesture.require(toFail: selectionDoubleTapGesture)
+        return gesture
+    }()
+    private var selectionEditMenuInteractionStorage: AnyObject?
+    private var selectionTextServices: TopicSelectionTextServicesView?
+    private let selectionStartHandle = TopicSelectionHandleView(isStart: true)
+    private let selectionEndHandle = TopicSelectionHandleView(isStart: false)
 
     private let timelineLayout = TopicTimelineLayout()
     private lazy var collectionView: UICollectionView = {
@@ -214,6 +412,14 @@ final class VirtualizedTopicDetailViewController: ObservableViewController, UIGe
                 },
                 heightPolicy: heightPolicy
             )
+            cell.setExternalSelectionEnabled(
+                !unit.isSelectionBoundary,
+                pressGesture: self.selectionPressGesture,
+                doubleTapGesture: self.selectionDoubleTapGesture
+            )
+            if self.selectionSession != nil {
+                self.applySelectionAppearance(to: cell, key: .unit(unitId))
+            }
             return cell
 
         case .footer(let postId):
@@ -469,10 +675,23 @@ final class VirtualizedTopicDetailViewController: ObservableViewController, UIGe
         viewModel.isTreeMode = AppSettings.shared.topicTreeMode
         viewModel.treeSort = AppSettings.shared.topicTreeSort
         updateTreeModeControls()
-        let postLongPress = UILongPressGestureRecognizer(target: self, action: #selector(handlePostLongPress(_:)))
-        postLongPress.delegate = self
-        collectionView.addGestureRecognizer(postLongPress)
-
+        view.addGestureRecognizer(selectionPressGesture)
+        view.addGestureRecognizer(selectionDoubleTapGesture)
+        view.addGestureRecognizer(selectionDismissTapGesture)
+        if #available(iOS 16.0, *) {
+            let interaction = UIEditMenuInteraction(delegate: self)
+            selectionEditMenuInteractionStorage = interaction
+            collectionView.addInteraction(interaction)
+        } else {
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(selectionMenuDidHide),
+                name: UIMenuController.didHideMenuNotification,
+                object: nil
+            )
+        }
+        collectionView.addSubview(selectionStartHandle)
+        collectionView.addSubview(selectionEndHandle)
         view.addSubview(collectionView)
         view.addSubview(activityIndicator)
         view.addSubview(errorLabel)
@@ -526,6 +745,7 @@ final class VirtualizedTopicDetailViewController: ObservableViewController, UIGe
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
+        clearCustomSelection()
         cancelPendingReadFlush()
         stopReadFlushTimer()
         readTracker.pause()
@@ -1099,7 +1319,7 @@ final class VirtualizedTopicDetailViewController: ObservableViewController, UIGe
 
     private func applySnapshot(reloadVisible: Bool, preserving anchor: (VirtualTopicItem, CGFloat)? = nil) {
         guard !isReloadingTreeMode else { return }
-        let isMoving = collectionView.isTracking || collectionView.isDragging || collectionView.isDecelerating
+        let isMoving = selectionDrag != nil || collectionView.isTracking || collectionView.isDragging || collectionView.isDecelerating
         if isApplyingSnapshot || isMoving {
             hasPendingSnapshot = true
             pendingSnapshotReloadVisible = pendingSnapshotReloadVisible || reloadVisible
@@ -1158,7 +1378,7 @@ final class VirtualizedTopicDetailViewController: ObservableViewController, UIGe
             isLoadingPage = false
             return
         }
-        let isMoving = collectionView.isTracking || collectionView.isDragging || collectionView.isDecelerating
+        let isMoving = selectionDrag != nil || collectionView.isTracking || collectionView.isDragging || collectionView.isDecelerating
         guard !isMoving, !isApplyingSnapshot else {
             pendingLoadEarlierPostIds = addedPostIds
             return
@@ -1215,6 +1435,7 @@ final class VirtualizedTopicDetailViewController: ObservableViewController, UIGe
     @discardableResult
     private func flushPendingLoadEarlierIfReady() -> Bool {
         guard let addedPostIds = pendingLoadEarlierPostIds,
+              selectionDrag == nil,
               !isApplyingSnapshot,
               !collectionView.isTracking,
               !collectionView.isDragging,
@@ -1228,6 +1449,7 @@ final class VirtualizedTopicDetailViewController: ObservableViewController, UIGe
     @discardableResult
     private func flushPendingSnapshotIfNeeded() -> Bool {
         guard hasPendingSnapshot,
+              selectionDrag == nil,
               !isApplyingSnapshot,
               !collectionView.isTracking,
               !collectionView.isDragging,
@@ -1316,22 +1538,538 @@ final class VirtualizedTopicDetailViewController: ObservableViewController, UIGe
 
     @objc private func renderEnvironmentChanged() { updateEnvironmentIfNeeded() }
 
-    @objc private func handlePostLongPress(_ gesture: UILongPressGestureRecognizer) {
-        guard gesture.state == .began,
-              let indexPath = collectionView.indexPathForItem(at: gesture.location(in: collectionView)),
-              let postId = dataSource.itemIdentifier(for: indexPath)?.longPressPostId,
-              let post = viewModel.postsById[postId]
-        else { return }
-        postCell(didLongPressPost: post)
+    // MARK: - Cross-block text selection
+
+    override var canBecomeFirstResponder: Bool { true }
+
+    override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
+        guard selectionSession != nil else {
+            return super.canPerformAction(action, withSender: sender)
+        }
+        return action == #selector(copy(_:)) || action == #selector(selectAll(_:))
+    }
+
+    override func copy(_ sender: Any?) {
+        guard let selectedText = selectedContentText else { return }
+        UIPasteboard.general.string = selectedText
+        retainCurrentMenuDismissal()
+    }
+
+    private var selectedContentText: String? {
+        guard let session = selectionSession, session.selectedRange.length > 0,
+              NSMaxRange(session.selectedRange) <= (session.text as NSString).length
+        else { return nil }
+        return (session.text as NSString).substring(with: session.selectedRange)
+            .replacingOccurrences(of: "\u{FFFC}", with: "")
+    }
+
+    override func selectAll(_ sender: Any?) {
+        guard var session = selectionSession else { return }
+        session.selectedRange = NSRange(location: 0, length: (session.text as NSString).length)
+        selectionSession = session
+        retainCurrentMenuDismissal()
+        refreshVisibleSelection()
+        DispatchQueue.main.async { [weak self] in
+            self?.showSelectionMenu()
+        }
     }
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         var candidate = touch.view
-        while let view = candidate, view !== collectionView {
-            if view is UIControl { return false }
-            candidate = view.superview
+        var handle: TopicSelectionHandleView?
+        while let current = candidate, current !== view {
+            if let selectionHandle = current as? TopicSelectionHandleView { handle = selectionHandle; break }
+            if current is UIControl { return false }
+            candidate = current.superview
         }
+        if gestureRecognizer === selectionDismissTapGesture {
+            return selectionSession != nil && selectionDrag == nil && handle == nil
+        }
+        if gestureRecognizer === selectionPressGesture {
+            pendingHandleDrag = nil
+            if let handle, selectionSession != nil {
+                pendingHandleDrag = handle === selectionStartHandle ? .startHandle : .endHandle
+                selectionPressGesture.beginsImmediately = true
+                return true
+            }
+            selectionPressGesture.beginsImmediately = false
+        }
+        guard handle == nil,
+              let target = selectionSurfaceTarget(at: touch.location(in: collectionView)),
+              case .unit(let id) = target.key,
+              unitsById[id]?.isSelectionBoundary == false,
+              target.surface.selectionOffset(at: target.pointInCell) != nil
+        else { return false }
+        selectionFeedback.prepare()
         return true
+    }
+
+    private func handleSelectionContact(_ phase: UIGestureRecognizer.State, at viewPoint: CGPoint) {
+        selectionFingerPoint = viewPoint
+        let point = collectionView.convert(viewPoint, from: view)
+        switch phase {
+        case .began:
+            if let pendingHandleDrag {
+                selectionDrag = pendingHandleDrag
+                hideSelectionMenuPreservingSelection()
+            } else {
+                selectionDrag = .extending
+                guard beginCustomSelection(at: point) else { selectionDrag = nil; return }
+            }
+            suspendSelectionScrolling(at: point)
+            startSelectionAutoScroll()
+
+        case .changed:
+            updateDraggedSelection(at: point)
+
+        case .ended:
+            updateDraggedSelection(at: point)
+            finishSelectionContact()
+            showSelectionMenu()
+
+        case .cancelled, .failed:
+            finishSelectionContact()
+            showSelectionMenu()
+
+        default:
+            break
+        }
+    }
+
+    private func finishSelectionContact() {
+        selectionAutoScrollTimer?.invalidate()
+        selectionAutoScrollTimer = nil
+        selectionDrag = nil
+        pendingHandleDrag = nil
+        for pan in suspendedSelectionPans { pan.isEnabled = true }
+        suspendedSelectionPans.removeAll()
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.selectionDrag == nil else { return }
+            if !self.flushPendingLoadEarlierIfReady(), !self.flushPendingSnapshotIfNeeded() {
+                self.commitPendingDynamicHeights()
+            }
+            if self.selectionSession != nil { self.refreshVisibleSelection() }
+        }
+    }
+
+    private func suspendSelectionScrolling(at point: CGPoint) {
+        var ancestor = collectionView.hitTest(point, with: nil)
+        while let current = ancestor {
+            if let scrollView = current as? UIScrollView, scrollView.panGestureRecognizer.isEnabled {
+                suspendedSelectionPans.append(scrollView.panGestureRecognizer)
+                scrollView.panGestureRecognizer.isEnabled = false
+            }
+            if current === collectionView { break }
+            ancestor = current.superview
+        }
+    }
+
+    @objc private func handleContentDoubleTap(_ gesture: UITapGestureRecognizer) {
+        guard gesture.state == .ended,
+              beginCustomSelection(at: gesture.location(in: collectionView))
+        else { return }
+        showSelectionMenu()
+    }
+
+    @objc private func dismissContentSelection(_ gesture: UITapGestureRecognizer) {
+        guard gesture.state == .ended else { return }
+        clearCustomSelection()
+    }
+
+    @discardableResult
+    private func beginCustomSelection(at point: CGPoint) -> Bool {
+        guard let target = selectionSurfaceTarget(at: point),
+              let word = target.surface.selectionWordRange(at: target.pointInCell),
+              let postId = selectionPostId(for: target.key),
+              var session = makeSelectionSession(
+                  postId: postId,
+                  anchorKey: target.key,
+                  anchorText: target.surface.selectionText,
+                  localWordRange: word
+              )
+        else { return false }
+        session.selectedRange = session.anchorWordRange
+        selectionSession = session
+        hideSelectionMenuPreservingSelection()
+        selectionFeedback.selectionChanged()
+        refreshVisibleSelection()
+        return true
+    }
+
+    private func clearCustomSelection() {
+        guard selectionSession != nil else { return }
+        finishSelectionContact()
+        selectionSession = nil
+        if #available(iOS 16.0, *) {
+            (selectionEditMenuInteractionStorage as? UIEditMenuInteraction)?.dismissMenu()
+        } else {
+            UIMenuController.shared.hideMenu()
+        }
+        selectionStartHandle.isHidden = true
+        selectionEndHandle.isHidden = true
+        // UIKit text services may present asynchronously after the menu closes.
+        // Keep their responder/text alive, just like a normal visible text view.
+        for indexPath in collectionView.indexPathsForVisibleItems {
+            (collectionView.cellForItem(at: indexPath) as? any VirtualSelectionSurface)?
+                .applyExternalSelection(nil)
+        }
+        resignFirstResponder()
+    }
+
+    private func hideSelectionMenuPreservingSelection() {
+        retainCurrentMenuDismissal()
+        if #available(iOS 16.0, *) {
+            (selectionEditMenuInteractionStorage as? UIEditMenuInteraction)?.dismissMenu()
+        } else {
+            UIMenuController.shared.hideMenu()
+        }
+    }
+
+    private func retainCurrentMenuDismissal() {
+        selectionMenuState.preserveSelectionOnDismissal()
+    }
+
+    @objc private func selectionMenuDidHide() {
+        handleSelectionMenuDismissed(menuID: selectionMenuState.currentID)
+    }
+
+    private func handleSelectionMenuDismissed(menuID: UUID?) {
+        guard selectionMenuState.shouldClearSelection(dismissing: menuID, isDragging: selectionDrag != nil),
+              selectionSession != nil
+        else { return }
+        clearCustomSelection()
+    }
+
+    private func selectionPostId(for key: SelectionNodeKey) -> Int? {
+        switch key {
+        case .unit(let id):
+            return id.postId
+        }
+    }
+
+    private func makeSelectionSession(
+        postId: Int,
+        anchorKey: SelectionNodeKey,
+        anchorText: String,
+        localWordRange: NSRange
+    ) -> SelectionSession? {
+        guard let document = viewModel.renderDocuments[postId] else { return nil }
+        var entries: [(key: SelectionNodeKey, text: String, boundary: Bool)] = []
+        for unit in document.units {
+            entries.append((
+                .unit(unit.id),
+                selectionText(for: .unit(unit.id)) ?? unit.selectionText,
+                unit.isSelectionBoundary
+            ))
+        }
+        guard let anchorIndex = entries.firstIndex(where: { $0.key == anchorKey }) else { return nil }
+
+        var lower = anchorIndex
+        while lower > 0, !entries[lower - 1].boundary { lower -= 1 }
+        var upper = anchorIndex
+        while upper + 1 < entries.count, !entries[upper + 1].boundary { upper += 1 }
+        guard !entries[anchorIndex].boundary else { return nil }
+
+        var nodes: [SelectionNode] = []
+        var text = ""
+        for entry in entries[lower...upper] where !entry.boundary {
+            if !nodes.isEmpty { text += "\n\n" }
+            let value = entry.key == anchorKey ? anchorText : entry.text
+            let location = (text as NSString).length
+            text += value
+            nodes.append(SelectionNode(
+                key: entry.key,
+                text: value,
+                range: NSRange(location: location, length: (value as NSString).length)
+            ))
+        }
+        guard let anchorNode = nodes.first(where: { $0.key == anchorKey }) else { return nil }
+        let localLocation = min(localWordRange.location, anchorNode.range.length)
+        let localLength = min(localWordRange.length, anchorNode.range.length - localLocation)
+        let anchorRange = NSRange(
+            location: anchorNode.range.location + localLocation,
+            length: localLength
+        )
+        return SelectionSession(
+            nodes: nodes,
+            text: text,
+            anchorWordRange: anchorRange,
+            selectedRange: anchorRange
+        )
+    }
+
+    private func selectionSurfaceTarget(
+        at point: CGPoint
+    ) -> (key: SelectionNodeKey, surface: any VirtualSelectionSurface, pointInCell: CGPoint)? {
+        guard let indexPath = collectionView.indexPathForItem(at: point),
+              let item = dataSource.itemIdentifier(for: indexPath),
+              let cell = collectionView.cellForItem(at: indexPath),
+              let surface = cell as? any VirtualSelectionSurface
+        else { return nil }
+        let key: SelectionNodeKey
+        switch item {
+        case .unit(let id):
+            key = .unit(id)
+        default:
+            return nil
+        }
+        return (key, surface, cell.convert(point, from: collectionView))
+    }
+
+    private func selectionGlobalOffset(at point: CGPoint) -> Int? {
+        guard let session = selectionSession else { return nil }
+        // Keep the endpoint within this post/quote segment when the finger is
+        // over padding or another post, even after the start cell is recycled.
+        if let first = session.nodes.first, let frame = selectionFrame(for: first), point.y <= frame.minY {
+            return first.range.location
+        }
+        if let last = session.nodes.last, let frame = selectionFrame(for: last), point.y >= frame.maxY {
+            return NSMaxRange(last.range)
+        }
+        guard let indexPath = collectionView.indexPathForItem(at: point),
+              let item = dataSource.itemIdentifier(for: indexPath)
+        else { return nil }
+
+        let key: SelectionNodeKey
+        switch item {
+        case .unit(let id):
+            key = .unit(id)
+        default:
+            return nil
+        }
+        guard let node = session.nodes.first(where: { $0.key == key }) else { return nil }
+        if let cell = collectionView.cellForItem(at: indexPath) as? any VirtualSelectionSurface,
+           let local = cell.selectionOffset(at: cell.convert(point, from: collectionView))
+        {
+            return node.range.location + min(local, node.range.length)
+        }
+        guard let attributes = collectionView.layoutAttributesForItem(at: indexPath) else {
+            return node.range.location
+        }
+        return point.y < attributes.frame.midY ? node.range.location : NSMaxRange(node.range)
+    }
+
+    private func selectionFrame(for node: SelectionNode) -> CGRect? {
+        let item: VirtualTopicItem
+        switch node.key { case .unit(let id): item = .unit(id) }
+        guard let indexPath = dataSource.indexPath(for: item) else { return nil }
+        return collectionView.layoutAttributesForItem(at: indexPath)?.frame
+    }
+
+    private func updateSelectionExtent(at point: CGPoint) {
+        guard var session = selectionSession,
+              let focus = selectionGlobalOffset(at: point)
+        else { return }
+        let lowerAnchor = session.anchorWordRange.location
+        let upperAnchor = NSMaxRange(session.anchorWordRange)
+        if focus < lowerAnchor {
+            session.selectedRange = NSRange(location: focus, length: upperAnchor - focus)
+        } else {
+            session.selectedRange = NSRange(
+                location: lowerAnchor,
+                length: max(upperAnchor, focus) - lowerAnchor
+            )
+        }
+        selectionSession = session
+        refreshVisibleSelection()
+    }
+
+    private func selectionText(for key: SelectionNodeKey) -> String? {
+        let item: VirtualTopicItem
+        switch key {
+        case .unit(let id):
+            item = .unit(id)
+        }
+        guard let indexPath = dataSource.indexPath(for: item),
+              let surface = collectionView.cellForItem(at: indexPath) as? any VirtualSelectionSurface
+        else { return nil }
+        let text = surface.selectionText
+        return text.isEmpty ? nil : text
+    }
+
+    private func applySelectionAppearance(
+        to surface: any VirtualSelectionSurface,
+        key: SelectionNodeKey
+    ) {
+        guard let session = selectionSession,
+              let node = session.nodes.first(where: { $0.key == key })
+        else {
+            surface.applyExternalSelection(nil)
+            return
+        }
+        let intersection = NSIntersectionRange(session.selectedRange, node.range)
+        guard intersection.length > 0 else {
+            surface.applyExternalSelection(nil)
+            return
+        }
+        surface.applyExternalSelection(NSRange(
+            location: intersection.location - node.range.location,
+            length: intersection.length
+        ))
+    }
+
+    private func refreshVisibleSelection() {
+        for indexPath in collectionView.indexPathsForVisibleItems {
+            guard let item = dataSource.itemIdentifier(for: indexPath),
+                  let surface = collectionView.cellForItem(at: indexPath) as? any VirtualSelectionSurface
+            else { continue }
+            switch item {
+            case .unit(let id):
+                applySelectionAppearance(to: surface, key: .unit(id))
+            default:
+                break
+            }
+        }
+        updateSelectionHandles()
+    }
+
+    private func updateSelectionHandles() {
+        guard let session = selectionSession, session.selectedRange.length > 0 else {
+            selectionStartHandle.isHidden = true
+            selectionEndHandle.isHidden = true
+            return
+        }
+        positionSelectionHandle(
+            selectionStartHandle,
+            at: session.selectedRange.location,
+            downstream: true
+        )
+        positionSelectionHandle(
+            selectionEndHandle,
+            at: NSMaxRange(session.selectedRange),
+            downstream: false
+        )
+        collectionView.bringSubviewToFront(selectionStartHandle)
+        collectionView.bringSubviewToFront(selectionEndHandle)
+    }
+
+    private func positionSelectionHandle(
+        _ handle: TopicSelectionHandleView,
+        at globalOffset: Int,
+        downstream: Bool
+    ) {
+        guard let session = selectionSession else { handle.isHidden = true; return }
+        let node: SelectionNode?
+        if downstream {
+            node = session.nodes.first(where: { NSMaxRange($0.range) > globalOffset })
+                ?? session.nodes.last
+        } else {
+            node = session.nodes.last(where: { $0.range.location < globalOffset })
+                ?? session.nodes.first
+        }
+        guard let node else { handle.isHidden = true; return }
+        let item: VirtualTopicItem
+        switch node.key {
+        case .unit(let id): item = .unit(id)
+        }
+        guard let indexPath = dataSource.indexPath(for: item),
+              let cell = collectionView.cellForItem(at: indexPath),
+              let surface = cell as? any VirtualSelectionSurface,
+              let caret = surface.selectionCaretRect(
+                  at: min(max(0, globalOffset - node.range.location), node.range.length),
+                  downstream: downstream
+              )
+        else { handle.isHidden = true; return }
+        let converted = cell.convert(caret, to: collectionView)
+        handle.position(caretRect: converted)
+        handle.isHidden = false
+    }
+
+    private func updateDraggedSelection(at point: CGPoint) {
+        guard let selectionDrag else { return }
+        switch selectionDrag {
+        case .extending:
+            updateSelectionExtent(at: point)
+        case .startHandle, .endHandle:
+            guard var session = selectionSession, let offset = selectionGlobalOffset(at: point) else { return }
+            if selectionDrag == .startHandle {
+                let end = NSMaxRange(session.selectedRange)
+                session.selectedRange = NSRange(
+                    location: min(offset, max(0, end - 1)),
+                    length: end - min(offset, max(0, end - 1))
+                )
+            } else {
+                let start = session.selectedRange.location
+                let end = max(start + 1, offset)
+                session.selectedRange = NSRange(location: start, length: end - start)
+            }
+            selectionSession = session
+            refreshVisibleSelection()
+        }
+    }
+
+    private func startSelectionAutoScroll() {
+        selectionAutoScrollTimer?.invalidate()
+        let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
+            self?.autoScrollSelectionIfNeeded()
+        }
+        selectionAutoScrollTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    private func autoScrollSelectionIfNeeded() {
+        guard selectionDrag != nil, selectionSession != nil else { return }
+        let point = collectionView.convert(selectionFingerPoint, from: view)
+        let visibleY = point.y - collectionView.contentOffset.y
+        let inset = collectionView.adjustedContentInset
+        let topEdge = inset.top + 72
+        let bottomEdge = collectionView.bounds.height - inset.bottom - 72
+        var delta: CGFloat = 0
+        if visibleY < topEdge { delta = -min(10, max(1, (topEdge - visibleY) / 6)) }
+        else if visibleY > bottomEdge { delta = min(10, max(1, (visibleY - bottomEdge) / 6)) }
+        guard delta != 0 else { return }
+        var minY = -inset.top
+        var maxY = max(minY, collectionView.contentSize.height - collectionView.bounds.height + inset.bottom)
+        if let first = selectionSession?.nodes.first, let frame = selectionFrame(for: first) {
+            minY = max(minY, min(collectionView.contentOffset.y, frame.minY - inset.top))
+        }
+        if let last = selectionSession?.nodes.last, let frame = selectionFrame(for: last) {
+            maxY = min(maxY, max(collectionView.contentOffset.y, frame.maxY - collectionView.bounds.height + inset.bottom + 72))
+        }
+        let nextOffset = min(max(collectionView.contentOffset.y + delta, minY), maxY)
+        guard nextOffset != collectionView.contentOffset.y else { return }
+        collectionView.contentOffset.y = nextOffset
+        collectionView.layoutIfNeeded()
+        updateDraggedSelection(at: collectionView.convert(selectionFingerPoint, from: view))
+    }
+
+    private func showSelectionMenu() {
+        guard let session = selectionSession, selectionDrag == nil,
+              let selectedText = selectedContentText
+        else { return }
+        let textServices: TopicSelectionTextServicesView
+        if let existing = selectionTextServices {
+            textServices = existing
+        } else {
+            textServices = TopicSelectionTextServicesView()
+            textServices.onCopy = { [weak self] in self?.copy(nil) }
+            textServices.onSelectAll = { [weak self] in self?.selectAll(nil) }
+            view.insertSubview(textServices, at: 0)
+            selectionTextServices = textServices
+            if #available(iOS 16.0, *),
+               let interaction = selectionEditMenuInteractionStorage as? UIEditMenuInteraction {
+                textServices.addInteraction(interaction)
+            }
+        }
+        let sourceRect = selectionEndHandle.isHidden
+            ? CGRect(x: collectionView.bounds.midX, y: collectionView.contentOffset.y + collectionView.bounds.midY, width: 1, height: 1)
+            : selectionEndHandle.frame
+        textServices.frame = view.convert(sourceRect, from: collectionView)
+        textServices.canSelectAllContent = session.selectedRange.length < (session.text as NSString).length
+        textServices.prepare(selectedText: selectedText)
+        textServices.selectionAnchorRect = textServices.convert(sourceRect, from: collectionView)
+        let menuID = selectionMenuState.present()
+        if #available(iOS 16.0, *) {
+            let sourceInTextServices = textServices.convert(sourceRect, from: collectionView)
+            let configuration = UIEditMenuConfiguration(
+                identifier: menuID.uuidString as NSString,
+                sourcePoint: CGPoint(x: sourceInTextServices.midX, y: sourceInTextServices.midY)
+            )
+            (selectionEditMenuInteractionStorage as? UIEditMenuInteraction)?
+                .presentEditMenu(with: configuration)
+        } else {
+            UIMenuController.shared.showMenu(from: collectionView, rect: sourceRect)
+        }
     }
 
     private func nextTreeReloadGeneration() -> UInt {
@@ -1579,7 +2317,7 @@ extension VirtualizedTopicDetailViewController: RenderUnitSizeInvalidating {
     }
 
     private func commitPendingDynamicHeights() {
-        guard !pendingDynamicHeights.isEmpty else { return }
+        guard selectionDrag == nil, !pendingDynamicHeights.isEmpty else { return }
         let pending = pendingDynamicHeights.drain()
         let anchor = captureAnchor()
         var updates: [IndexPath: CGFloat] = [:]
@@ -1604,9 +2342,97 @@ extension VirtualizedTopicDetailViewController: RenderUnitSizeInvalidating {
     }
 }
 
+@available(iOS 16.0, *)
+extension VirtualizedTopicDetailViewController: UIEditMenuInteractionDelegate {
+    func editMenuInteraction(
+        _ interaction: UIEditMenuInteraction,
+        menuFor configuration: UIEditMenuConfiguration,
+        suggestedActions: [UIMenuElement]
+    ) -> UIMenu? {
+        let selectedText = selectedContentText ?? ""
+        // UIKit supplies and localizes the commands. Bind their validated
+        // target now: menu dismissal otherwise changes the responder chain
+        // before a text service gets the command/selected text.
+        func routedActions(_ items: [UIMenuElement]) -> [UIMenuElement] {
+            items.compactMap { item in
+                if let menu = item as? UIMenu {
+                    if menu.identifier == .share {
+                        let action = UIAction(
+                            title: String(localized: "selection.share"),
+                            image: UIImage(systemName: "square.and.arrow.up")
+                        ) { [weak self] _ in
+                            guard let self, !selectedText.isEmpty else { return }
+                            self.retainCurrentMenuDismissal()
+                            let controller = UIActivityViewController(
+                                activityItems: [selectedText],
+                                applicationActivities: nil
+                            )
+                            controller.popoverPresentationController?.sourceView = self.collectionView
+                            controller.popoverPresentationController?.sourceRect = self.selectionEndHandle.isHidden
+                                ? CGRect(x: self.collectionView.bounds.midX, y: self.collectionView.bounds.midY, width: 1, height: 1)
+                                : self.selectionEndHandle.frame
+                            self.present(controller, animated: true)
+                        }
+                        return menu.replacingChildren([action])
+                    }
+                    let children = routedActions(menu.children)
+                    return children.isEmpty ? nil : menu.replacingChildren(children)
+                }
+                guard let command = item as? UICommand else { return item }
+                guard let textServices = selectionTextServices,
+                      textServices.canPerformAction(command.action, withSender: command),
+                      let target = textServices.target(forAction: command.action, withSender: command)
+                else { return nil }
+                return UIAction(title: command.title, image: command.image) { [weak self] _ in
+                    self?.retainCurrentMenuDismissal()
+                    UIApplication.shared.sendAction(command.action, to: target, from: command, for: nil)
+                }
+            }
+        }
+        return UIMenu(children: routedActions(suggestedActions))
+    }
+
+    func editMenuInteraction(
+        _ interaction: UIEditMenuInteraction,
+        targetRectFor configuration: UIEditMenuConfiguration
+    ) -> CGRect {
+        if !selectionEndHandle.isHidden, let interactionView = interaction.view {
+            return interactionView.convert(selectionEndHandle.frame, from: collectionView)
+        }
+        return CGRect(
+            x: configuration.sourcePoint.x,
+            y: configuration.sourcePoint.y,
+            width: 1,
+            height: 1
+        )
+    }
+
+    func editMenuInteraction(
+        _ interaction: UIEditMenuInteraction,
+        willDismissMenuFor configuration: UIEditMenuConfiguration,
+        animator: any UIEditMenuInteractionAnimating
+    ) {
+        let menuID = (configuration.identifier as? String).flatMap(UUID.init(uuidString:))
+        animator.addCompletion { [weak self] in
+            self?.handleSelectionMenuDismissed(menuID: menuID)
+        }
+    }
+}
+
 extension VirtualizedTopicDetailViewController: UICollectionViewDelegate, UICollectionViewDataSourcePrefetching {
     func collectionView(_ collectionView: UICollectionView, willDisplay cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
         guard let item = dataSource.itemIdentifier(for: indexPath) else { return }
+        if selectionSession != nil,
+           let surface = cell as? any VirtualSelectionSurface {
+            switch item {
+            case .title:
+                surface.applyExternalSelection(nil)
+            case .unit(let id):
+                applySelectionAppearance(to: surface, key: .unit(id))
+            default:
+                break
+            }
+        }
         if let postId = postIdByItem[item], let post = viewModel.postsById[postId] {
             let count = visibleItemCountsByPost[postId, default: 0]
             visibleItemCountsByPost[postId] = count + 1
@@ -1696,6 +2522,9 @@ extension VirtualizedTopicDetailViewController: UICollectionViewDelegate, UIColl
     }
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        if scrollView === collectionView, selectionSession != nil {
+            updateSelectionHandles()
+        }
         if scrollView === collectionView,
            !scrollView.isTracking, !scrollView.isDragging, !scrollView.isDecelerating
         {
@@ -2357,30 +3186,6 @@ extension VirtualizedTopicDetailViewController: PostCellDelegate {
                 present(alert, animated: true)
             } catch {
                 if !handleCloudflareChallengeIfNeeded(error: error, on: api) { presentError(error) }
-            }
-        }
-    }
-
-    func postCell(didLongPressPost post: DiscourseTopicDetail.Post) {
-        Task {
-            do {
-                let detail = try await api.fetchPost(id: post.id)
-                guard let raw = detail.raw, !raw.isEmpty else { return }
-                let rawController = RawContentViewController(
-                    raw: raw,
-                    username: post.username,
-                    floorNumber: post.postNumber
-                )
-                let navigationController = UINavigationController(rootViewController: rawController)
-                if let sheet = navigationController.sheetPresentationController {
-                    sheet.detents = [.medium(), .large()]
-                    sheet.prefersGrabberVisible = true
-                }
-                present(navigationController, animated: true)
-            } catch {
-                let alert = UIAlertController(title: nil, message: error.localizedDescription, preferredStyle: .alert)
-                alert.addAction(UIAlertAction(title: String(localized: "action.ok"), style: .default))
-                present(alert, animated: true)
             }
         }
     }

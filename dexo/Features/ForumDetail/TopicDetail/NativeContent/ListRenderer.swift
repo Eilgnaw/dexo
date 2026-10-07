@@ -46,7 +46,6 @@ enum ListRenderer: BlockRenderer {
         config: NativeRenderConfig
     ) -> UIView {
         let combined = NSMutableAttributedString()
-        var interactive = false
         for (index, item) in items.enumerated() {
             if index > 0 { combined.append(NSAttributedString(string: "\n")) }
 
@@ -57,9 +56,6 @@ enum ListRenderer: BlockRenderer {
                     allInlines.append(contentsOf: inlines)
                 }
             }
-            if !interactive, NativeContentRenderer.inlinesNeedTextView(allInlines) {
-                interactive = true
-            }
             combined.append(makeBulletedAttributedString(
                 inlines: allInlines,
                 ordered: ordered,
@@ -68,7 +64,7 @@ enum ListRenderer: BlockRenderer {
                 config: config
             ))
         }
-        return makeLineView(attributedText: combined, interactive: interactive, config: config)
+        return makeLineView(attributedText: combined, config: config)
     }
 
     private static func renderItem(
@@ -103,8 +99,7 @@ enum ListRenderer: BlockRenderer {
                     indent: indent,
                     config: config
                 )
-                let interactive = NativeContentRenderer.inlinesNeedTextView(inlines)
-                itemStack.addArrangedSubview(makeLineView(attributedText: result, interactive: interactive, config: config))
+                itemStack.addArrangedSubview(makeLineView(attributedText: result, config: config))
             } else {
                 if isFirstBlock {
                     // First block is not a paragraph — show standalone bullet
@@ -116,7 +111,7 @@ enum ListRenderer: BlockRenderer {
                         indent: indent,
                         config: config
                     )
-                    itemStack.addArrangedSubview(makeLineView(attributedText: bulletOnly, interactive: false, config: config))
+                    itemStack.addArrangedSubview(makeLineView(attributedText: bulletOnly, config: config))
                 }
 
                 // Render child block with indentation
@@ -156,7 +151,7 @@ enum ListRenderer: BlockRenderer {
                 indent: indent,
                 config: config
             )
-            itemStack.addArrangedSubview(makeLineView(attributedText: bulletOnly, interactive: false, config: config))
+            itemStack.addArrangedSubview(makeLineView(attributedText: bulletOnly, config: config))
         }
 
         return itemStack
@@ -192,8 +187,7 @@ enum ListRenderer: BlockRenderer {
             indent: indent,
             config: config
         )
-        let interactive = NativeContentRenderer.inlinesNeedTextView(allInlines)
-        return makeLineView(attributedText: result, interactive: interactive, config: config)
+        return makeLineView(attributedText: result, config: config)
     }
 
     // MARK: - Helpers
@@ -234,33 +228,12 @@ enum ListRenderer: BlockRenderer {
         return result
     }
 
-    private static func makeTextView(attributedText: NSAttributedString, config: NativeRenderConfig) -> LinkTextView {
-        let textView = LinkTextView()
-        textView.isEditable = false
-        textView.isScrollEnabled = false
-        textView.textContainerInset = .zero
-        textView.textContainer.lineFragmentPadding = 0
-        textView.backgroundColor = .clear
-        textView.dataDetectorTypes = []
-        textView.attributedText = attributedText
-        textView.linkTextAttributes = [
-            .foregroundColor: config.linkColor,
-        ]
-        textView.translatesAutoresizingMaskIntoConstraints = false
-        return textView
-    }
-
-    /// Cheap UILabel when the line is non-interactive; LinkTextView otherwise.
-    /// A flat list of N pure-text items collapses to N UILabels (or 1 UILabel via
-    /// renderCombinedFlatList), avoiding N expensive UITextView instantiations.
+    /// Flat list content stays in one selectable text view so a selection can
+    /// span adjacent list items.
     private static func makeLineView(
         attributedText: NSAttributedString,
-        interactive: Bool,
         config: NativeRenderConfig
     ) -> UIView {
-        if interactive {
-            return makeTextView(attributedText: attributedText, config: config)
-        }
-        return NativeContentRenderer.makeContentLabel(attributedText: attributedText)
+        ParagraphRenderer.makeTextView(attributedText: attributedText, config: config)
     }
 }

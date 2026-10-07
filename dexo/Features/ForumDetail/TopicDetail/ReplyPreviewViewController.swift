@@ -158,5 +158,4 @@ extension ReplyPreviewViewController: PostCellDelegate {
     func postCell(didVotePoll pollName: String, options: [String], forPost post: DiscourseTopicDetail.Post) {}
     func postCell(didRemovePollVote pollName: String, forPost post: DiscourseTopicDetail.Post) {}
     func postCell(didTapFlagPost post: DiscourseTopicDetail.Post, sourceView: UIView) {}
-    func postCell(didLongPressPost post: DiscourseTopicDetail.Post) {}
 }

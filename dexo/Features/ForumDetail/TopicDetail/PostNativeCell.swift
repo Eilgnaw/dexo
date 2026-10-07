@@ -689,8 +689,6 @@ final class PostNativeCell: UITableViewCell, TopicPostIDProviding {
         let replyRefTap = UITapGestureRecognizer(target: self, action: #selector(replyReferenceTapped))
         replyToLabel.addGestureRecognizer(replyRefTap)
 
-        let cellLongPress = UILongPressGestureRecognizer(target: self, action: #selector(cellLongPressed(_:)))
-        contentView.addGestureRecognizer(cellLongPress)
     }
 
     /// The current content block views in the stack, for VC-level caching.
@@ -1215,11 +1213,6 @@ final class PostNativeCell: UITableViewCell, TopicPostIDProviding {
     @objc private func replyReferenceTapped() {
         guard let post = currentPost, post.replyToPostNumber != nil else { return }
         delegate?.postCell(didTapReplyReferenceForPost: post)
-    }
-
-    @objc private func cellLongPressed(_ gesture: UILongPressGestureRecognizer) {
-        guard gesture.state == .began, let post = currentPost else { return }
-        delegate?.postCell(didLongPressPost: post)
     }
 
     private func updateMoreMenu() {

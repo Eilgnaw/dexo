@@ -84,15 +84,14 @@ enum NativeContentRenderer {
     /// `NSAttributedString.length`) for a single paragraph chunk.
     ///
     /// Posts that are dozens of short `<p>` blocks (AI prompt dumps, FAQs,
-    /// long lists with `<br>` separators) otherwise collapse into one
-    /// giant UILabel. That blows up the layer backing store and forces a
-    /// 30–80ms Core Text typesetting pass the first frame the cell scrolls
-    /// in — the visible "stuck" frame the user reports.
+    /// long lists with `<br>` separators) otherwise collapse into one giant
+    /// text view. That creates an oversized backing store and makes initial
+    /// TextKit layout unnecessarily expensive.
     ///
     /// At ~1000 UTF-16 units the cap kicks in only for outliers. Short
     /// posts merge into one view as before. Long posts are split into
-    /// chunks small enough to be individually async-rendered (see
-    /// `AsyncTextView`) without blowing the layer backing-store budget.
+    /// chunks small enough for selectable TextKit views to lay out without
+    /// creating a single oversized backing store.
     static let maxMergedParagraphChars = 1000
 
     static let renderers: [BlockRenderer.Type] = [
@@ -155,24 +154,9 @@ enum NativeContentRenderer {
                 continue
             }
 
-            // Combine consecutive paragraphs into a single view.
-            // When the paragraph run contains no link / mention / hashtag / spoiler /
-            // inline-image, we can use a plain UILabel instead of a LinkTextView —
-            // UILabel is ~5–10× cheaper to instantiate than UITextView.
+            // Combine consecutive paragraphs into a single selectable text view.
             if case .paragraph(let firstInlines) = annotated.block {
                 let j = paragraphRunEnd(annotatedBlocks: annotatedBlocks, startIndex: i)
-
-                var needsInteractive = inlinesNeedTextView(firstInlines)
-                if !needsInteractive, j > i + 1 {
-                    for k in (i + 1)..<j {
-                        if case .paragraph(let inl) = annotatedBlocks[k].block,
-                           inlinesNeedTextView(inl)
-                        {
-                            needsInteractive = true
-                            break
-                        }
-                    }
-                }
 
                 let attr: NSAttributedString
                 if j > i + 1 {
@@ -181,19 +165,7 @@ enum NativeContentRenderer {
                     attr = firstInlines.attributedString(config: config.attributedStringConfig)
                 }
 
-                if needsInteractive {
-                    views.append(ParagraphRenderer.makeTextView(attributedText: attr, config: config))
-                } else if attr.length > 500 {
-                    // Long pure-text chunk → off-main rasterization. Saves the
-                    // ~50ms-per-chunk Core Text typesetting cost during CALayer
-                    // commit at the price of a brief blank window while the
-                    // background render completes. See `AsyncTextView`.
-                    views.append(AsyncTextView(attributedString: attr))
-                } else {
-                    // Short chunks: UILabel is fast enough to draw inline and
-                    // ~5–10× cheaper to instantiate than UITextView.
-                    views.append(makeContentLabel(attributedText: attr))
-                }
+                views.append(ParagraphRenderer.makeTextView(attributedText: attr, config: config))
                 i = j
                 continue
             }
@@ -226,10 +198,9 @@ enum NativeContentRenderer {
             for (view, h) in zip(views, heights) {
                 guard let h else { continue }
                 let c = view.heightAnchor.constraint(equalToConstant: h)
-                // Below `.required` so a TK2 UITextView whose intrinsic content
-                // height differs from `boundingRect` by a sub-pixel can still
-                // self-adjust without crashing autolayout. UILabel + Core Text
-                // matches `boundingRect` exactly, so it's a no-op for them.
+                // Below `.required` so a text view whose intrinsic content height
+                // differs from `boundingRect` by a sub-pixel can self-adjust
+                // without crashing autolayout.
                 c.priority = UILayoutPriority(999)
                 c.isActive = true
             }
@@ -250,47 +221,6 @@ enum NativeContentRenderer {
             }
             return nil
         }
-    }
-
-    /// Cheap UILabel for non-interactive attributed text (paragraphs/headings/table
-    /// cells without links, mentions, hashtags, or spoilers). Inline `.image` attachments
-    /// (emojis) are OK — `PostNativeCell.loadInlineImagesBatched` refreshes them after
-    /// async loading by re-assigning `attributedText`.
-    /// When `insets` is non-zero a `PaddedContentLabel` is used so callers can skip an
-    /// extra wrapping `UIView` + layout constraints.
-    static func makeContentLabel(attributedText: NSAttributedString, insets: UIEdgeInsets = .zero) -> UILabel {
-        let label: UILabel
-        if insets == .zero {
-            label = UILabel()
-        } else {
-            let padded = PaddedContentLabel()
-            padded.contentInsets = insets
-            label = padded
-        }
-        label.numberOfLines = 0
-        label.translatesAutoresizingMaskIntoConstraints = false
-        label.attributedText = attributedText
-        return label
-    }
-
-    /// True when inlines contain anything that requires a UITextView:
-    /// - `.link`/`.mention`/`.mentionGroup`/`.hashtag` → need tap handling
-    /// - `.spoiler` → need blur overlay + tap to reveal
-    /// - `.image` → inline emoji attachments; UILabel's Core Text path doesn't render
-    ///   `NSTextAttachment.bounds` reliably (especially with a negative baseline
-    ///   offset), and async-loaded attachment images don't redraw cleanly on UILabel.
-    ///   Keep these on UITextView so `textStorage.edited(.editedAttributes, …)` can
-    ///   refresh the attachment in place.
-    static func inlinesNeedTextView(_ inlines: [InlineNode]) -> Bool {
-        for inline in inlines {
-            switch inline {
-            case .link, .mention, .mentionGroup, .hashtag, .spoiler, .image:
-                return true
-            case .text, .styledText, .code, .lineBreak:
-                continue
-            }
-        }
-        return false
     }
 
     /// Returns the exclusive end index `j` such that `annotatedBlocks[i..<j]`
@@ -370,36 +300,5 @@ enum NativeContentRenderer {
             result.append(inlines.attributedString(config: config.attributedStringConfig))
         }
         return result
-    }
-}
-
-// MARK: - PaddedContentLabel
-
-/// UILabel with a configurable content inset — avoids having to wrap the label in a
-/// container UIView + 4 layout constraints just to provide padding.
-final class PaddedContentLabel: UILabel {
-    var contentInsets: UIEdgeInsets = .zero
-
-    override var intrinsicContentSize: CGSize {
-        var size = super.intrinsicContentSize
-        size.width += contentInsets.left + contentInsets.right
-        size.height += contentInsets.top + contentInsets.bottom
-        return size
-    }
-
-    override func textRect(forBounds bounds: CGRect, limitedToNumberOfLines numberOfLines: Int) -> CGRect {
-        let inner = bounds.inset(by: contentInsets)
-        let fit = super.textRect(forBounds: inner, limitedToNumberOfLines: numberOfLines)
-        // Reverse the inset so the label's overall size includes the padding.
-        return fit.inset(by: UIEdgeInsets(
-            top: -contentInsets.top,
-            left: -contentInsets.left,
-            bottom: -contentInsets.bottom,
-            right: -contentInsets.right
-        ))
-    }
-
-    override func drawText(in rect: CGRect) {
-        super.drawText(in: rect.inset(by: contentInsets))
     }
 }

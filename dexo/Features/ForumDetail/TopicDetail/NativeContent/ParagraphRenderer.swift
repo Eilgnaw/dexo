@@ -10,13 +10,6 @@ enum ParagraphRenderer: BlockRenderer {
     static func render(_ block: ContentBlock, config: NativeRenderConfig, delegate: PostCellDelegate?) -> UIView {
         guard case .paragraph(let inlines) = block else { return UIView() }
         let attr = inlines.attributedString(config: config.attributedStringConfig)
-        // Fast path: pure-text paragraphs (no link / mention / hashtag / spoiler /
-        // inline image) go to UILabel, which is 5–10× cheaper to instantiate than
-        // UITextView. This benefits every nested renderBlocks call too — blockquote,
-        // details, discourse-quote, spoiler, table fallback, etc.
-        if !NativeContentRenderer.inlinesNeedTextView(inlines) {
-            return NativeContentRenderer.makeContentLabel(attributedText: attr)
-        }
         return makeTextView(attributedText: attr, config: config)
     }
 
@@ -24,6 +17,7 @@ enum ParagraphRenderer: BlockRenderer {
     static func makeTextView(attributedText: NSAttributedString, config: NativeRenderConfig) -> LinkTextView {
         let textView = LinkTextView()
         textView.isEditable = false
+        textView.isSelectable = true
         textView.isScrollEnabled = false
         textView.textContainerInset = .zero
         textView.textContainer.lineFragmentPadding = 0
@@ -53,6 +47,7 @@ enum ParagraphRenderer: BlockRenderer {
     static func makeTK2TextView(attributedText: NSAttributedString, config: NativeRenderConfig) -> UITextView {
         let textView = UITextView(usingTextLayoutManager: true)
         textView.isEditable = false
+        textView.isSelectable = true
         textView.isScrollEnabled = false
         textView.textContainerInset = .zero
         textView.textContainer.lineFragmentPadding = 0

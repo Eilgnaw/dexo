@@ -27,7 +27,6 @@ protocol PostCellDelegate: AnyObject {
     func postCell(didRemovePollVote pollName: String, forPost post: DiscourseTopicDetail.Post)
     func postCell(didTapFlagPost post: DiscourseTopicDetail.Post, sourceView: UIView)
     func postCell(didTapEditPost post: DiscourseTopicDetail.Post)
-    func postCell(didLongPressPost post: DiscourseTopicDetail.Post)
 }
 
 extension PostCellDelegate {

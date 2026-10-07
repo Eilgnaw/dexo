@@ -55,7 +55,6 @@ enum TableRenderer: BlockRenderer {
 
     private struct CellMeasurement {
         let prebuiltAttr: NSAttributedString?
-        let needsTextView: Bool
         let blocks: [ContentBlock]
     }
 
@@ -100,9 +99,9 @@ enum TableRenderer: BlockRenderer {
 
         // Measure each cell's natural (unconstrained) width, then collapse to
         // per-column max widths clamped to [min, max]. Heights are left to
-        // autolayout — UILabel's resolved heights for CJK-heavy cells don't
-        // always match `NSAttributedString.boundingRect`, so precomputing
-        // them would risk clipping bottom rows.
+        // autolayout — the rendered TextKit height for CJK-heavy cells can differ
+        // from `NSAttributedString.boundingRect`, so precomputing it would risk
+        // clipping bottom rows.
         var columnContentWidths = Array(repeating: minColumnContentWidth, count: columnCount)
         var measurements: [[CellMeasurement]] = []
         for (rowIdx, row) in allRows.enumerated() {
@@ -111,12 +110,10 @@ enum TableRenderer: BlockRenderer {
             for col in 0..<columnCount {
                 let cellBlocks = col < row.count ? row[col] : []
                 var prebuiltAttr: NSAttributedString?
-                var needsTextView = false
                 let naturalWidth: CGFloat
                 if cellBlocks.count == 1, case .paragraph(let inlines) = cellBlocks[0] {
                     let attr = inlines.attributedString(config: attrCfg)
                     prebuiltAttr = attr
-                    needsTextView = NativeContentRenderer.inlinesNeedTextView(inlines)
                     naturalWidth = ceil(attr.boundingRect(
                         with: CGSize(width: CGFloat.greatestFiniteMagnitude, height: .greatestFiniteMagnitude),
                         options: [.usesLineFragmentOrigin],
@@ -127,7 +124,6 @@ enum TableRenderer: BlockRenderer {
                 }
                 rowMeas.append(CellMeasurement(
                     prebuiltAttr: prebuiltAttr,
-                    needsTextView: needsTextView,
                     blocks: cellBlocks
                 ))
                 let clamped = max(min(naturalWidth, maxColumnContentWidth), minColumnContentWidth)
@@ -160,24 +156,14 @@ enum TableRenderer: BlockRenderer {
 
         func makeCellView(meas: CellMeasurement, columnWidth: CGFloat, isHeader: Bool) -> UIView {
             // Fast path: single-paragraph cell with a pre-built attributed string.
-            // Pure text → UILabel (cheap to instantiate). Anything tappable
-            // (link/mention/hashtag/spoiler/inline image) → LinkTextView.
+            // A single-paragraph cell can use one selectable text view directly.
             if let attr = meas.prebuiltAttr {
-                if meas.needsTextView {
-                    let textView = ParagraphRenderer.makeTextView(attributedText: attr, config: config)
-                    textView.textContainerInset = UIEdgeInsets(
-                        top: cellPaddingV, left: cellPaddingH,
-                        bottom: cellPaddingV, right: cellPaddingH
-                    )
-                    return textView
-                }
-                return NativeContentRenderer.makeContentLabel(
-                    attributedText: attr,
-                    insets: UIEdgeInsets(
-                        top: cellPaddingV, left: cellPaddingH,
-                        bottom: cellPaddingV, right: cellPaddingH
-                    )
+                let textView = ParagraphRenderer.makeTextView(attributedText: attr, config: config)
+                textView.textContainerInset = UIEdgeInsets(
+                    top: cellPaddingV, left: cellPaddingH,
+                    bottom: cellPaddingV, right: cellPaddingH
                 )
+                return textView
             }
 
             let container = UIView()
@@ -301,7 +287,7 @@ enum TableRenderer: BlockRenderer {
         // below makes the scroll view's height resolve to the bordered
         // container's autolayout-resolved height, so the surrounding cell
         // stack gets a correctly-sized arranged subview without us having
-        // to precompute a value (UILabel's intrinsic height for CJK-heavy
+        // to precompute a value (TextKit's intrinsic height for CJK-heavy
         // cells doesn't always match `NSAttributedString.boundingRect`).
         let scrollView = UIScrollView()
         scrollView.translatesAutoresizingMaskIntoConstraints = false
@@ -313,7 +299,7 @@ enum TableRenderer: BlockRenderer {
         // The bordered container's intrinsic height drives the scroll view's
         // height (required), so the cell stack always sees the *real* table
         // height through `IntrinsicHeightScrollView.intrinsicContentSize`.
-        // Precomputed heights would only be a rough guess (UILabel's
+        // Precomputed heights would only be a rough guess (TextKit's
         // autolayout-resolved height occasionally differs from boundingRect
         // by ~10pt for CJK text); if the cell stack pinned an undersized
         // value as required, the table would clip its lower rows. Leaving

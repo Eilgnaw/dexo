@@ -100,6 +100,120 @@ final class VirtualTreeCollapsePill: UIButton {
     }
 }
 
+protocol VirtualSelectionSurface where Self: UICollectionViewCell {
+    var selectionText: String { get }
+    var selectionTextLength: Int { get }
+    func selectionOffset(at point: CGPoint) -> Int?
+    func selectionWordRange(at point: CGPoint) -> NSRange?
+    func applyExternalSelection(_ range: NSRange?)
+    func selectionCaretRect(at offset: Int, downstream: Bool) -> CGRect?
+}
+
+private enum VirtualTextSelectionGeometry {
+    private static let highlightLayerName = "DexoExternalSelectionHighlight"
+
+    static func textView(in root: UIView) -> UITextView? {
+        if let textView = root as? UITextView { return textView }
+        for subview in root.subviews {
+            if let textView = textView(in: subview) { return textView }
+        }
+        return nil
+    }
+
+    static func offset(in textView: UITextView, at point: CGPoint) -> Int {
+        let location = CGPoint(
+            x: point.x - textView.textContainerInset.left,
+            y: point.y - textView.textContainerInset.top
+        )
+        return min(
+            textView.attributedText.length,
+            textView.layoutManager.characterIndex(
+                for: location,
+                in: textView.textContainer,
+                fractionOfDistanceBetweenInsertionPoints: nil
+            )
+        )
+    }
+
+    static func wordRange(in textView: UITextView, at point: CGPoint) -> NSRange? {
+        let index = offset(in: textView, at: point)
+        let text = textView.attributedText.string
+        let length = (text as NSString).length
+        guard length > 0 else { return nil }
+        let characterIndex = min(index, length - 1)
+        var matchedRange: NSRange?
+        text.enumerateSubstrings(
+            in: text.startIndex..<text.endIndex,
+            options: [.byWords, .substringNotRequired]
+        ) { _, range, _, stop in
+            let candidate = NSRange(range, in: text)
+            if NSLocationInRange(characterIndex, candidate) {
+                matchedRange = candidate
+                stop = true
+            }
+        }
+        if let matchedRange { return matchedRange }
+        return (text as NSString).rangeOfComposedCharacterSequence(at: characterIndex)
+    }
+
+    static func apply(range: NSRange?, to textView: UITextView) {
+        textView.layer.sublayers?.filter { $0.name == highlightLayerName }
+            .forEach { $0.removeFromSuperlayer() }
+        guard let range, range.length > 0,
+              range.location >= 0,
+              NSMaxRange(range) <= textView.attributedText.length
+        else { return }
+
+        let path = UIBezierPath()
+        let glyphRange = textView.layoutManager.glyphRange(
+            forCharacterRange: range,
+            actualCharacterRange: nil
+        )
+        textView.layoutManager.enumerateEnclosingRects(
+            forGlyphRange: glyphRange,
+            withinSelectedGlyphRange: glyphRange,
+            in: textView.textContainer
+        ) { rect, _ in
+            let adjusted = rect.offsetBy(
+                dx: textView.textContainerInset.left,
+                dy: textView.textContainerInset.top
+            )
+            path.append(UIBezierPath(roundedRect: adjusted, cornerRadius: 2))
+        }
+        let layer = CAShapeLayer()
+        layer.name = highlightLayerName
+        layer.frame = textView.bounds
+        layer.path = path.cgPath
+        layer.fillColor = UIColor.systemBlue.withAlphaComponent(0.28).cgColor
+        textView.layer.addSublayer(layer)
+    }
+
+    static func setExternalSelectionEnabled(_ enabled: Bool, in textView: UITextView) {
+        if let linkTextView = textView as? LinkTextView {
+            linkTextView.usesExternalSelectionInteraction = enabled
+        } else {
+            textView.isSelectable = !enabled
+        }
+        textView.gestureRecognizers?.forEach { gesture in
+            if gesture is UILongPressGestureRecognizer
+                || (((gesture as? UITapGestureRecognizer)?.numberOfTapsRequired ?? 0) > 1)
+            {
+                gesture.isEnabled = !enabled
+            }
+        }
+        if !enabled { apply(range: nil, to: textView) }
+    }
+
+    static func caretRect(in textView: UITextView, at offset: Int) -> CGRect? {
+        let clamped = max(0, min(offset, textView.attributedText.length))
+        guard let position = textView.position(from: textView.beginningOfDocument, offset: clamped) else {
+            return nil
+        }
+        return textView.caretRect(for: position)
+    }
+
+}
+
 final class VirtualTopicTitleCell: UICollectionViewCell {
     static let reuseIdentifier = "VirtualTopicTitleCell"
     private static let horizontalInset: CGFloat = 16
@@ -498,7 +612,7 @@ final class VirtualPostHeaderCell: UICollectionViewCell {
     }
 }
 
-final class VirtualPostBlockCell: UICollectionViewCell, UITextViewDelegate, TopicPostIDProviding {
+final class VirtualPostBlockCell: UICollectionViewCell, UITextViewDelegate, TopicPostIDProviding, VirtualSelectionSurface {
     static let reuseIdentifier = "VirtualPostBlockCell"
     weak var sizeDelegate: RenderUnitSizeInvalidating?
     private weak var postDelegate: PostCellDelegate?
@@ -508,6 +622,8 @@ final class VirtualPostBlockCell: UICollectionViewCell, UITextViewDelegate, Topi
     private var unitId: RenderUnitID?
     private var leadingConstraint: NSLayoutConstraint?
     private var hostedHeightConstraint: NSLayoutConstraint?
+    private var selectionUsesTextSurface = false
+    private weak var externalSelectionOverlay: UIView?
     private var acceptsDynamicHeightUpdates = false
     private var bottomSpacing: CGFloat = 8
     private var observationTokens: [NSObjectProtocol] = []
@@ -569,6 +685,12 @@ final class VirtualPostBlockCell: UICollectionViewCell, UITextViewDelegate, Topi
         tearDownHostedView()
         postId = post.id
         unitId = unit.id
+        switch unit.block {
+        case .paragraph, .heading, .codeBlock, .list, .rawHTML:
+            selectionUsesTextSurface = true
+        default:
+            selectionUsesTextSurface = false
+        }
         postDelegate = delegate
         acceptsDynamicHeightUpdates = heightPolicy.acceptsDynamicUpdates
         bottomSpacing = unit.bottomSpacing
@@ -645,10 +767,95 @@ final class VirtualPostBlockCell: UICollectionViewCell, UITextViewDelegate, Topi
     private func configureTextViews(in view: UIView) {
         if let textView = view as? UITextView {
             textView.delegate = self
-            (textView as? LinkTextView)?.configureSpoilerIfNeeded()
+            if let linkTextView = textView as? LinkTextView {
+                linkTextView.configureSpoilerIfNeeded()
+                linkTextView.onExternalLinkTap = { [weak self] url in
+                    self?.postDelegate?.postCell(didTapLinkURL: url)
+                }
+            }
             loadInlineImages(in: textView)
         }
         for subview in view.subviews { configureTextViews(in: subview) }
+    }
+
+    var selectionTextLength: Int {
+        guard let textView = selectionTextView else { return 0 }
+        return textView.attributedText.length
+    }
+
+    var selectionText: String {
+        guard let textView = selectionTextView else { return "" }
+        return textView.attributedText.string
+    }
+
+    func selectionOffset(at point: CGPoint) -> Int? {
+        guard hostedView != nil else { return nil }
+        guard let textView = selectionTextView else { return nil }
+        guard textView.bounds.contains(textView.convert(point, from: self)) else { return nil }
+        return VirtualTextSelectionGeometry.offset(
+            in: textView,
+            at: textView.convert(point, from: self)
+        )
+    }
+
+    func selectionWordRange(at point: CGPoint) -> NSRange? {
+        guard let textView = selectionTextView else { return nil }
+        return VirtualTextSelectionGeometry.wordRange(
+            in: textView,
+            at: textView.convert(point, from: self)
+        )
+    }
+
+    func applyExternalSelection(_ range: NSRange?) {
+        externalSelectionOverlay?.removeFromSuperview()
+        externalSelectionOverlay = nil
+        guard let hostedView else { return }
+        guard let textView = selectionTextView else {
+            guard let range, range.length > 0 else { return }
+            let overlay = UIView(frame: hostedView.bounds)
+            overlay.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            overlay.isUserInteractionEnabled = false
+            overlay.backgroundColor = UIColor.systemBlue.withAlphaComponent(0.20)
+            overlay.layer.cornerRadius = hostedView.layer.cornerRadius
+            hostedView.addSubview(overlay)
+            externalSelectionOverlay = overlay
+            return
+        }
+        VirtualTextSelectionGeometry.apply(range: range, to: textView)
+    }
+
+    func setExternalSelectionEnabled(
+        _ enabled: Bool,
+        pressGesture: UIGestureRecognizer,
+        doubleTapGesture: UITapGestureRecognizer
+    ) {
+        guard let textView = selectionTextView
+        else { return }
+        VirtualTextSelectionGeometry.setExternalSelectionEnabled(enabled, in: textView)
+        if enabled {
+            (textView as? LinkTextView)?.prioritizeExternalSelectionGestures(
+                longPressGesture: pressGesture,
+                doubleTapGesture: doubleTapGesture
+            )
+        }
+    }
+
+    func selectionCaretRect(at offset: Int, downstream: Bool) -> CGRect? {
+        guard let hostedView else { return nil }
+        guard let textView = selectionTextView else {
+            let y = downstream ? hostedView.bounds.minY : hostedView.bounds.maxY
+            return hostedView.convert(
+                CGRect(x: hostedView.bounds.minX, y: y, width: 2, height: 1),
+                to: self
+            )
+        }
+        guard let rect = VirtualTextSelectionGeometry.caretRect(in: textView, at: offset) else { return nil }
+        return textView.convert(rect, to: self)
+    }
+
+    private var selectionTextView: UITextView? {
+        guard selectionUsesTextSurface, let hostedView else { return nil }
+        return VirtualTextSelectionGeometry.textView(in: hostedView)
     }
 
     private func findDetailsView(in view: UIView) -> DetailsCardView? {
@@ -720,6 +927,8 @@ final class VirtualPostBlockCell: UICollectionViewCell, UITextViewDelegate, Topi
         hostedView?.removeFromSuperview()
         hostedView = nil
         hostedHeightConstraint = nil
+        selectionUsesTextSurface = false
+        externalSelectionOverlay = nil
     }
 }
 

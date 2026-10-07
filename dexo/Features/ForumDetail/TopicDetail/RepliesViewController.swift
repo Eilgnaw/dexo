@@ -677,23 +677,4 @@ extension RepliesViewController: PostCellDelegate {
         // Flag not supported in replies sheet
     }
 
-    func postCell(didLongPressPost post: DiscourseTopicDetail.Post) {
-        Task {
-            do {
-                let detail = try await api.fetchPost(id: post.id)
-                guard let raw = detail.raw, !raw.isEmpty else { return }
-                let vc = RawContentViewController(raw: raw, username: post.username, floorNumber: post.postNumber)
-                let nav = UINavigationController(rootViewController: vc)
-                if let sheet = nav.sheetPresentationController {
-                    sheet.detents = [.medium(), .large()]
-                    sheet.prefersGrabberVisible = true
-                }
-                present(nav, animated: true)
-            } catch {
-                let alert = UIAlertController(title: nil, message: error.localizedDescription, preferredStyle: .alert)
-                alert.addAction(UIAlertAction(title: String(localized: "action.ok"), style: .default))
-                present(alert, animated: true)
-            }
-        }
-    }
 }

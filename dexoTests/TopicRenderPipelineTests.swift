@@ -4,6 +4,66 @@ import XCTest
 @testable import dexo
 
 final class TopicRenderPipelineTests: XCTestCase {
+    @MainActor
+    func testTextServicesExposeCompleteSelectionWithoutAdditionalHandles() {
+        let service = TopicSelectionTextServicesView()
+        let selectedText = "Markdown 标题\n\n第一段 😀\n\n第二段"
+        service.prepare(selectedText: selectedText)
+        guard let range = service.selectedTextRange else { return XCTFail("Missing selected text") }
+        XCTAssertEqual(service.text(in: range), selectedText)
+        XCTAssertTrue(service.selectionRects(for: range).isEmpty)
+        XCTAssertEqual(service.caretRect(for: range.start), .zero)
+        XCTAssertFalse(service.isEditable)
+    }
+
+    @MainActor
+    func testTextServicesCopyAndSelectAllOperateOnPostSelection() {
+        let service = TopicSelectionTextServicesView()
+        service.prepare(selectedText: "Selected word")
+        var copied = false
+        var selectedAll = false
+        service.onCopy = { copied = true }
+        service.onSelectAll = { selectedAll = true }
+        service.copy(nil)
+        service.selectAll(nil)
+        XCTAssertTrue(copied)
+        XCTAssertTrue(selectedAll)
+        service.canSelectAllContent = false
+        XCTAssertFalse(service.canPerformAction(#selector(UIResponder.selectAll(_:)), withSender: nil))
+        service.canSelectAllContent = true
+        XCTAssertTrue(service.canPerformAction(#selector(UIResponder.selectAll(_:)), withSender: nil))
+    }
+
+    func testMenuDismissalWhileDraggingPreservesSelection() {
+        var state = TopicSelectionMenuState()
+        let menu = state.present()
+        XCTAssertFalse(state.shouldClearSelection(dismissing: menu, isDragging: true))
+    }
+
+    func testDelayedProgrammaticDismissalPreservesSelectionAfterFingerLifts() {
+        var state = TopicSelectionMenuState()
+        let menu = state.present()
+        state.preserveSelectionOnDismissal()
+        // The dismissal animation completes after the handle gesture ended.
+        XCTAssertFalse(state.shouldClearSelection(dismissing: menu, isDragging: false))
+    }
+
+    func testOldMenuCompletionCannotClearReplacementSelectionMenu() {
+        var state = TopicSelectionMenuState()
+        let first = state.present()
+        let replacement = state.present()
+        XCTAssertFalse(state.shouldClearSelection(dismissing: first, isDragging: false))
+        XCTAssertEqual(state.currentID, replacement)
+        XCTAssertTrue(state.shouldClearSelection(dismissing: replacement, isDragging: false))
+    }
+
+    func testOutsideTapDismissalClearsSelectionExactlyOnce() {
+        var state = TopicSelectionMenuState()
+        let menu = state.present()
+        XCTAssertTrue(state.shouldClearSelection(dismissing: menu, isDragging: false))
+        XCTAssertFalse(state.shouldClearSelection(dismissing: menu, isDragging: false))
+    }
+
     func testLongParagraphIsSplitWithoutLosingText() {
         let text = String(repeating: "Swift 渲染性能测试。", count: 120)
         let annotated = [AnnotatedBlock(block: .paragraph([.text(text)]), sourceHTML: "<p>…</p>")]
@@ -146,17 +206,17 @@ final class TopicRenderPipelineTests: XCTestCase {
         XCTAssertEqual(request.startIndex, 0)
     }
 
-    func testVirtualItemsExposeOnlyPostLongPressTargets() {
+    func testVirtualItemsExposePostScrollAnchors() {
         let unitId = RenderUnitID(postId: 42, contentVersion: 1, ordinal: 0)
-        XCTAssertEqual(VirtualTopicItem.header(42).longPressPostId, 42)
-        XCTAssertEqual(VirtualTopicItem.unit(unitId).longPressPostId, 42)
-        XCTAssertEqual(VirtualTopicItem.footer(42).longPressPostId, 42)
-        XCTAssertEqual(VirtualTopicItem.boosts(42).longPressPostId, 42)
-        XCTAssertEqual(VirtualTopicItem.collapsed(42).longPressPostId, 42)
-        XCTAssertNil(VirtualTopicItem.blocked(42).longPressPostId)
-        XCTAssertNil(VirtualTopicItem.title(1).longPressPostId)
-        XCTAssertNil(VirtualTopicItem.loadMoreChildren(42).longPressPostId)
-        XCTAssertNil(VirtualTopicItem.paginationStatus.longPressPostId)
+        XCTAssertEqual(VirtualTopicItem.header(42).postAnchorId, 42)
+        XCTAssertEqual(VirtualTopicItem.unit(unitId).postAnchorId, 42)
+        XCTAssertEqual(VirtualTopicItem.footer(42).postAnchorId, 42)
+        XCTAssertEqual(VirtualTopicItem.boosts(42).postAnchorId, 42)
+        XCTAssertEqual(VirtualTopicItem.collapsed(42).postAnchorId, 42)
+        XCTAssertEqual(VirtualTopicItem.blocked(42).postAnchorId, 42)
+        XCTAssertNil(VirtualTopicItem.title(1).postAnchorId)
+        XCTAssertNil(VirtualTopicItem.loadMoreChildren(42).postAnchorId)
+        XCTAssertNil(VirtualTopicItem.paginationStatus.postAnchorId)
     }
 
     func testObservedSnapshotIsSuppressedDuringPagination() {

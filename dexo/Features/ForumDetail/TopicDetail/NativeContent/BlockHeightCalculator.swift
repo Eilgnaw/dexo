@@ -192,7 +192,7 @@ enum BlockHeightCalculator {
             )
 
         // Block types whose height we can't predict accurately:
-        // - table: cells lay out at column widths whose UILabel-resolved
+        // - table: cells lay out at column widths whose TextKit-resolved
         //   heights don't reliably match `boundingRect` (off by ~10pt for
         //   CJK-heavy content). The renderer hands back a scroll view that
         //   self-sizes via constraints, so autosize works correctly.
@@ -691,9 +691,9 @@ enum BlockHeightCalculator {
     // MARK: - TextKit Helpers
 
     /// Computes the rendered height of an attributed string at a fixed width.
-    /// Uses `boundingRect`'s TextKit path which matches both `UILabel` and
-    /// `LinkTextView` (the latter is configured with `lineFragmentPadding = 0`
-    /// and `textContainerInset = .zero` in `ParagraphRenderer.makeTextView`).
+    /// Uses `boundingRect`'s TextKit path to match `LinkTextView`, which is
+    /// configured with `lineFragmentPadding = 0` and `textContainerInset = .zero`
+    /// in `ParagraphRenderer.makeTextView`.
     ///
     /// Safe to call from any thread — each invocation builds its own
     /// `NSStringDrawingContext`.

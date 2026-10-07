@@ -117,6 +117,32 @@ nonisolated struct RenderUnitID: Hashable, Sendable {
     let ordinal: Int
 }
 
+/// Menu animations can finish after a drag starts or a new menu is presented.
+/// Identify the presentation being dismissed instead of relying on a timeout.
+nonisolated struct TopicSelectionMenuState {
+    private(set) var currentID: UUID?
+    private var retainedDismissals: Set<UUID> = []
+
+    mutating func present() -> UUID {
+        preserveSelectionOnDismissal()
+        let id = UUID()
+        currentID = id
+        return id
+    }
+
+    mutating func preserveSelectionOnDismissal() {
+        if let currentID { retainedDismissals.insert(currentID) }
+    }
+
+    mutating func shouldClearSelection(dismissing id: UUID?, isDragging: Bool) -> Bool {
+        guard let id else { return false }
+        let retained = retainedDismissals.remove(id) != nil
+        guard id == currentID else { return false }
+        currentID = nil
+        return !retained && !isDragging
+    }
+}
+
 /// Smallest independently virtualized piece of a post body.
 nonisolated struct RenderUnit: Sendable {
     let id: RenderUnitID
@@ -132,6 +158,85 @@ nonisolated struct RenderUnit: Sendable {
         self.block = block
         self.sourceHTML = sourceHTML
         self.bottomSpacing = bottomSpacing
+    }
+
+    var selectionText: String { block.selectionText }
+
+    var isSelectionBoundary: Bool {
+        switch block {
+        case .blockquote, .discourseQuote:
+            true
+        default:
+            false
+        }
+    }
+}
+
+nonisolated private extension InlineNode {
+    var selectionText: String {
+        switch self {
+        case .text(let value), .styledText(let value, _), .code(let value):
+            value
+        case .link(_, let children), .spoiler(let children):
+            children.map(\.selectionText).joined()
+        case .image:
+            "\u{FFFC}"
+        case .lineBreak:
+            "\n"
+        case .mention(let username, _):
+            "@\(username)"
+        case .mentionGroup(let name, _):
+            "@\(name)"
+        case .hashtag(let text, _, _):
+            "#\(text)"
+        }
+    }
+}
+
+nonisolated private extension Array where Element == InlineNode {
+    var selectionText: String { map(\.selectionText).joined() }
+}
+
+nonisolated extension ContentBlock {
+    var selectionText: String {
+        switch self {
+        case .paragraph(let inlines), .heading(_, let inlines):
+            return inlines.selectionText
+        case .codeBlock(_, let code):
+            return code
+        case .blockquote(let blocks), .spoiler(let blocks):
+            return blocks.map(\.selectionText).joined(separator: "\n\n")
+        case .discourseQuote(_, _, let topicTitle, _, _, _, let content):
+            return ([topicTitle].compactMap { $0 } + content.map(\.selectionText))
+                .joined(separator: "\n\n")
+        case .image(_, let alt, _, _, _):
+            return alt ?? ""
+        case .onebox(let sourceURL, let title, let description, _, _, _, _):
+            return [title, description, sourceURL].compactMap { $0 }.joined(separator: "\n")
+        case .video(let url, _, let title, _, _, _, _):
+            return [title, url].compactMap { $0 }.joined(separator: "\n")
+        case .list(let ordered, let items):
+            return items.enumerated().map { index, item in
+                let marker = ordered ? "\(index + 1).\t" : "•\t"
+                return marker + item.blocks.map(\.selectionText).joined(separator: "\n")
+            }.joined(separator: "\n")
+        case .table(let headers, let rows):
+            let headerText = headers.map { $0.map(\.selectionText).joined(separator: " ") }
+                .joined(separator: "\t")
+            let rowText = rows.map { row in
+                row.map { $0.map(\.selectionText).joined(separator: " ") }.joined(separator: "\t")
+            }
+            return ([headerText] + rowText).filter { !$0.isEmpty }.joined(separator: "\n")
+        case .details(let summary, let content):
+            return ([summary.selectionText] + content.map(\.selectionText))
+                .filter { !$0.isEmpty }.joined(separator: "\n\n")
+        case .poll(let name):
+            return name
+        case .divider:
+            return ""
+        case .rawHTML(let html):
+            return html
+        }
     }
 }
 

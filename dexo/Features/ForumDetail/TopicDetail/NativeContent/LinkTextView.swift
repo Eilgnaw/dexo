@@ -1,11 +1,89 @@
 import CookedHTML
 import UIKit
 
-/// A UITextView subclass that disables text selection while preserving link tap interaction.
-/// `isSelectable` remains `true` (required for link detection), but selection handles and
-/// copy/paste menus are suppressed.
-/// Also handles tap-to-reveal for inline spoiler text ranges (`<span class="spoiler">`).
+/// On-demand responder for UIKit's selected-text services (Look Up, Translate,
+/// Share, accessibility actions, etc.). It never draws or receives touches;
+/// the virtualized post remains responsible for selection geometry/gestures.
+final class TopicSelectionTextServicesView: UITextView {
+    var onCopy: (() -> Void)?
+    var onSelectAll: (() -> Void)?
+    var canSelectAllContent = false
+    var selectionAnchorRect = CGRect(x: 0, y: 0, width: 1, height: 20)
+
+    init() {
+        super.init(frame: CGRect(x: 0, y: 0, width: 1, height: 1), textContainer: nil)
+        isEditable = false
+        isSelectable = true
+        isScrollEnabled = true
+        accessibilityElementsHidden = true
+        backgroundColor = .clear
+        textColor = .clear
+        tintColor = .clear
+        clipsToBounds = true
+    }
+
+    @available(*, unavailable) required init?(coder: NSCoder) { fatalError() }
+
+    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool { false }
+
+    func prepare(selectedText: String) {
+        text = selectedText
+        _ = becomeFirstResponder()
+        selectedRange = NSRange(location: 0, length: (selectedText as NSString).length)
+        suppressSelectionDisplay()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        suppressSelectionDisplay()
+    }
+
+    private func suppressSelectionDisplay() {
+        if #available(iOS 17.0, *) {
+            for interaction in interactions {
+                guard let display = interaction as? UITextSelectionDisplayInteraction else { continue }
+                display.isActivated = false
+                display.cursorView.isHidden = true
+                display.highlightView.isHidden = true
+                display.handleViews.forEach { $0.isHidden = true }
+            }
+        }
+    }
+
+    // The responder supplies text, not a second on-screen selection. Services
+    // still get a real anchor for their popovers through firstRect(for:).
+    override func selectionRects(for range: UITextRange) -> [UITextSelectionRect] { [] }
+    override func caretRect(for position: UITextPosition) -> CGRect { .zero }
+    override func firstRect(for range: UITextRange) -> CGRect { selectionAnchorRect }
+
+    override func copy(_ sender: Any?) { onCopy?() }
+    override func selectAll(_ sender: Any?) { onSelectAll?() }
+
+    override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
+        if action == #selector(selectAll(_:)) { return canSelectAllContent }
+        return super.canPerformAction(action, withSender: sender)
+    }
+}
+
+/// A non-editable text view that supports native text selection, copy, link taps,
+/// and tap-to-reveal for inline spoiler ranges (`<span class="spoiler">`).
 final class LinkTextView: UITextView {
+    var onExternalLinkTap: ((URL) -> Void)?
+    var usesExternalSelectionInteraction = false {
+        didSet {
+            if usesExternalSelectionInteraction {
+                super.selectedTextRange = nil
+            }
+            isSelectable = !usesExternalSelectionInteraction
+            externalLinkTapGesture.isEnabled = usesExternalSelectionInteraction
+        }
+    }
+    private lazy var externalLinkTapGesture: UITapGestureRecognizer = {
+        let gesture = UITapGestureRecognizer(target: self, action: #selector(externalLinkTapped(_:)))
+        gesture.isEnabled = false
+        addGestureRecognizer(gesture)
+        return gesture
+    }()
     private var spoilerRevealed = false
     private var spoilerRanges: [NSRange] = []
     /// Tap-catching containers. Alpha stays at 1 so UIKit hit-testing keeps
@@ -22,31 +100,61 @@ final class LinkTextView: UITextView {
     /// unreliable on iOS and causes the "reveal flashes then snaps back" bug.
     private static let blurStyle = SpoilerAppearance.blurStyle
 
+    deinit {}
+
     override var selectedTextRange: UITextRange? {
-        get { nil }
-        set { }
-    }
-
-    override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
-        false
-    }
-
-    override func didMoveToWindow() {
-        super.didMoveToWindow()
-        // Disable all built-in long press gestures (loupe/selection) so they don't
-        // conflict with the cell's long press gesture. Link taps still work via tap.
-        gestureRecognizers?.forEach { gesture in
-            if gesture is UILongPressGestureRecognizer {
-                gesture.isEnabled = false
-            }
+        get { usesExternalSelectionInteraction ? nil : super.selectedTextRange }
+        set {
+            guard !usesExternalSelectionInteraction else { return }
+            super.selectedTextRange = newValue
         }
     }
 
-    override func selectionRects(for range: UITextRange) -> [UITextSelectionRect] {
-        []
+    override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
+        usesExternalSelectionInteraction
+            ? false
+            : super.canPerformAction(action, withSender: sender)
     }
 
-    deinit {}
+    @objc private func externalLinkTapped(_ gesture: UITapGestureRecognizer) {
+        guard gesture.state == .ended, attributedText.length > 0 else { return }
+        let point = gesture.location(in: self)
+        let containerPoint = CGPoint(
+            x: point.x - textContainerInset.left,
+            y: point.y - textContainerInset.top
+        )
+        let glyphIndex = layoutManager.glyphIndex(
+            for: containerPoint,
+            in: textContainer,
+            fractionOfDistanceThroughGlyph: nil
+        )
+        guard glyphIndex < layoutManager.numberOfGlyphs else { return }
+        let glyphRect = layoutManager.boundingRect(
+            forGlyphRange: NSRange(location: glyphIndex, length: 1),
+            in: textContainer
+        )
+        guard glyphRect.insetBy(dx: -4, dy: -4).contains(containerPoint) else { return }
+        let characterIndex = layoutManager.characterIndexForGlyph(at: glyphIndex)
+        guard characterIndex < attributedText.length else { return }
+        let value = attributedText.attribute(.link, at: characterIndex, effectiveRange: nil)
+        let url: URL?
+        if let existing = value as? URL {
+            url = existing
+        } else if let raw = value as? String {
+            url = URL(string: raw)
+        } else {
+            url = nil
+        }
+        if let url { onExternalLinkTap?(url) }
+    }
+
+    func prioritizeExternalSelectionGestures(
+        longPressGesture: UIGestureRecognizer,
+        doubleTapGesture: UITapGestureRecognizer
+    ) {
+        externalLinkTapGesture.require(toFail: longPressGesture)
+        externalLinkTapGesture.require(toFail: doubleTapGesture)
+    }
 
     /// Call after setting attributedText to enable inline spoiler tap handling if needed.
     func configureSpoilerIfNeeded() {
