@@ -31,10 +31,9 @@ enum ParagraphRenderer: BlockRenderer {
         return textView
     }
 
-    /// Creates a TextKit 2 backed UITextView. Use only for paragraphs that
-    /// don't need link tap / spoiler / inline-image handling — those go through
-    /// `makeTextView` (LinkTextView, TextKit 1) because the spoiler overlay
-    /// pipeline reaches into `layoutManager` (TK1-only API).
+    /// Creates a plain TextKit 2 backed UITextView for rendering experiments.
+    /// Production LinkTextView instances also retain TextKit 2 on iOS 16+;
+    /// link, spoiler and external-selection geometry uses UITextInput APIs.
     ///
     /// Hypothesis: TK2's `NSTextLayoutManager` defers glyph generation to
     /// drawing time per layout-fragment, which on first display might cost

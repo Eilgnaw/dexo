@@ -1,6 +1,42 @@
 import CookedHTML
 import UIKit
 
+/// Geometry from the text view's active layout engine. Unlike `layoutManager`,
+/// UITextInput queries don't migrate a TextKit 2 view into compatibility mode.
+enum TopicTextInputGeometry {
+    static func offset(in textView: UITextView, at point: CGPoint) -> Int? {
+        guard let position = textView.closestPosition(to: point) else { return nil }
+        return max(0, min(
+            textView.attributedText.length,
+            textView.offset(from: textView.beginningOfDocument, to: position)
+        ))
+    }
+
+    static func characterRange(in textView: UITextView, at point: CGPoint) -> NSRange? {
+        guard let range = textView.characterRange(at: point) else { return nil }
+        let start = textView.offset(from: textView.beginningOfDocument, to: range.start)
+        let length = textView.offset(from: range.start, to: range.end)
+        guard start >= 0, length > 0, start <= textView.attributedText.length,
+              length <= textView.attributedText.length - start
+        else { return nil }
+        return NSRange(location: start, length: length)
+    }
+
+    static func rects(in textView: UITextView, for range: NSRange) -> [CGRect] {
+        guard range.location >= 0, range.length > 0,
+              range.location <= textView.attributedText.length,
+              range.length <= textView.attributedText.length - range.location,
+              let start = textView.position(from: textView.beginningOfDocument, offset: range.location),
+              let end = textView.position(from: start, offset: range.length),
+              let textRange = textView.textRange(from: start, to: end)
+        else { return [] }
+        // UIKit already includes text-container insets and wrapped-line edges.
+        return textView.selectionRects(for: textRange).map(\.rect).filter {
+            !$0.isEmpty && !$0.isNull && !$0.isInfinite
+        }
+    }
+}
+
 /// On-demand responder for UIKit's selected-text services (Look Up, Translate,
 /// Share, accessibility actions, etc.). It never draws or receives touches;
 /// the virtualized post remains responsible for selection geometry/gestures.
@@ -119,23 +155,12 @@ final class LinkTextView: UITextView {
     @objc private func externalLinkTapped(_ gesture: UITapGestureRecognizer) {
         guard gesture.state == .ended, attributedText.length > 0 else { return }
         let point = gesture.location(in: self)
-        let containerPoint = CGPoint(
-            x: point.x - textContainerInset.left,
-            y: point.y - textContainerInset.top
-        )
-        let glyphIndex = layoutManager.glyphIndex(
-            for: containerPoint,
-            in: textContainer,
-            fractionOfDistanceThroughGlyph: nil
-        )
-        guard glyphIndex < layoutManager.numberOfGlyphs else { return }
-        let glyphRect = layoutManager.boundingRect(
-            forGlyphRange: NSRange(location: glyphIndex, length: 1),
-            in: textContainer
-        )
-        guard glyphRect.insetBy(dx: -4, dy: -4).contains(containerPoint) else { return }
-        let characterIndex = layoutManager.characterIndexForGlyph(at: glyphIndex)
-        guard characterIndex < attributedText.length else { return }
+        guard let range = TopicTextInputGeometry.characterRange(in: self, at: point),
+              TopicTextInputGeometry.rects(in: self, for: range).contains(where: {
+                  $0.insetBy(dx: -4, dy: -4).contains(point)
+              })
+        else { return }
+        let characterIndex = range.location
         let value = attributedText.attribute(.link, at: characterIndex, effectiveRange: nil)
         let url: URL?
         if let existing = value as? URL {
@@ -192,35 +217,10 @@ final class LinkTextView: UITextView {
         let effect = UIBlurEffect(style: Self.blurStyle)
 
         for range in spoilerRanges {
-            layoutManager.ensureLayout(forCharacterRange: range)
-            let glyphRange = layoutManager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
-
-            layoutManager.enumerateLineFragments(forGlyphRange: glyphRange) { lineRect, usedRect, _, lineGlyphRange, _ in
-                let intersection = NSIntersectionRange(glyphRange, lineGlyphRange)
-                guard intersection.length > 0 else { return }
-
-                let glyphRect = self.layoutManager.boundingRect(
-                    forGlyphRange: intersection, in: self.textContainer
-                )
-
-                // Snap to the line-fragment edges (container right, not the
-                // tight `usedRect`) whenever the spoiler reaches that edge of
-                // this line. `usedRect.maxX` varies with each line's content
-                // length so adjacent / wrapped spoilers still looked jagged —
-                // using `lineRect.maxX` puts every affected row's right edge
-                // on the same column.
-                let lineEnd = lineGlyphRange.location + lineGlyphRange.length
-                let extendsToLineStart = intersection.location <= lineGlyphRange.location
-                let extendsToLineEnd = intersection.location + intersection.length >= lineEnd
-                let left = extendsToLineStart ? lineRect.minX : glyphRect.minX
-                let right = extendsToLineEnd ? lineRect.maxX : glyphRect.maxX
-
-                var rect = CGRect(x: left, y: usedRect.minY, width: right - left, height: usedRect.height)
-                rect.origin.x += self.textContainerInset.left
-                rect.origin.y += self.textContainerInset.top
-                rect = rect.integral
-                guard rect.width > 0, rect.height > 0 else { return }
-
+            for selectionRect in TopicTextInputGeometry.rects(in: self, for: range) {
+                // Selection geometry includes full-width intermediate lines,
+                // keeping wrapped spoilers covered without TK1 glyph queries.
+                let rect = selectionRect.integral
                 let container = UIView(frame: rect)
                 container.isUserInteractionEnabled = true
                 container.layer.cornerRadius = 3

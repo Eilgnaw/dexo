@@ -5,6 +5,135 @@ import XCTest
 
 final class TopicRenderPipelineTests: XCTestCase {
     @MainActor
+    func testExternalSelectionPreservesTextKit2ParagraphGeometry() {
+        guard #available(iOS 16.0, *) else { return }
+        let config = NativeRenderConfig.default(contentWidth: 396)
+        let inlines: [InlineNode] = [
+            .text("我测试的时候貌似没发生过这种事情欸 "),
+            .image(src: "https://example.com/emoji/roll_eyes.png", alt: ":roll_eyes:", width: 20, height: 20, isEmoji: true),
+            .lineBreak, .lineBreak,
+            .text("佬是在什么时候左键失效的，战斗中还是在营地里呀"),
+        ]
+        let textView = ParagraphRenderer.makeTextView(
+            attributedText: inlines.attributedString(config: config.attributedStringConfig),
+            config: config
+        )
+        let window = hostSelectionTextView(textView)
+        defer { window.isHidden = true }
+        VirtualTextSelectionGeometry.setExternalSelectionEnabled(true, in: textView)
+        guard let manager = textView.textLayoutManager else { return XCTFail("Expected TextKit 2") }
+        let originalFrame = textView.frame
+        let originalOffset = textView.contentOffset
+        let fullRange = NSRange(location: 0, length: textView.attributedText.length)
+        let originalRects = TopicTextInputGeometry.rects(in: textView, for: fullRange)
+        XCTAssertFalse(originalRects.isEmpty)
+
+        XCTAssertNotNil(VirtualTextSelectionGeometry.offset(in: textView, at: CGPoint(x: 40, y: 10)))
+        XCTAssertNotNil(VirtualTextSelectionGeometry.wordRange(in: textView, at: CGPoint(x: 40, y: 10)))
+        VirtualTextSelectionGeometry.apply(range: fullRange, to: textView)
+        XCTAssertNotNil(VirtualTextSelectionGeometry.caretRect(in: textView, at: fullRange.length))
+        textView.layoutIfNeeded()
+
+        XCTAssertTrue(textView.textLayoutManager === manager)
+        XCTAssertEqual(textView.frame, originalFrame)
+        XCTAssertEqual(textView.contentOffset, originalOffset)
+        XCTAssertEqual(TopicTextInputGeometry.rects(in: textView, for: fullRange), originalRects)
+        XCTAssertNil(textView.selectedTextRange)
+        XCTAssertNotNil(textView.layer.sublayers?.first { $0.name == "DexoExternalSelectionHighlight" })
+        VirtualTextSelectionGeometry.apply(range: nil, to: textView)
+        XCTAssertFalse(textView.layer.sublayers?.contains { $0.name == "DexoExternalSelectionHighlight" } ?? false)
+    }
+
+    @MainActor
+    func testTextInputSelectionHonorsInsetsAndUTF16Ranges() {
+        guard #available(iOS 16.0, *) else { return }
+        let textView = UITextView(usingTextLayoutManager: true)
+        textView.isEditable = false
+        textView.isSelectable = false
+        textView.isScrollEnabled = false
+        textView.textContainerInset = UIEdgeInsets(top: 8, left: 12, bottom: 8, right: 12)
+        textView.textContainer.lineFragmentPadding = 0
+        textView.attributedText = NSAttributedString(
+            string: "Markdown 标题 😀\n\n第二段链接",
+            attributes: [.font: UIFont.systemFont(ofSize: 16)]
+        )
+        let window = hostSelectionTextView(textView)
+        defer { window.isHidden = true }
+        let manager = textView.textLayoutManager
+        let range = (textView.attributedText.string as NSString).range(of: "第二段")
+        let rects = TopicTextInputGeometry.rects(in: textView, for: range)
+        guard let rect = rects.first else { return XCTFail("Missing text geometry") }
+        XCTAssertGreaterThanOrEqual(rect.minX, 12)
+        XCTAssertGreaterThanOrEqual(rect.minY, 8)
+        let point = CGPoint(x: rect.midX, y: rect.midY)
+        guard let offset = TopicTextInputGeometry.offset(in: textView, at: point) else {
+            return XCTFail("Missing insertion position")
+        }
+        XCTAssertTrue((range.location...NSMaxRange(range)).contains(offset))
+        XCTAssertNotNil(TopicTextInputGeometry.characterRange(in: textView, at: point))
+        VirtualTextSelectionGeometry.apply(range: range, to: textView)
+        XCTAssertTrue(textView.textLayoutManager === manager)
+        XCTAssertTrue(TopicTextInputGeometry.rects(in: textView, for: NSRange(location: -1, length: 1)).isEmpty)
+        XCTAssertTrue(TopicTextInputGeometry.rects(in: textView, for: NSRange(location: 0, length: Int.max)).isEmpty)
+    }
+
+    @MainActor
+    func testWrappedSpoilerKeepsTextKit2() {
+        guard #available(iOS 16.0, *) else { return }
+        let config = NativeRenderConfig.default(contentWidth: 396)
+        let inlines: [InlineNode] = [.spoiler(children: [.text(String(repeating: "中文隐藏内容和换行测试。", count: 6))])]
+        let textView = ParagraphRenderer.makeTextView(
+            attributedText: inlines.attributedString(config: config.attributedStringConfig),
+            config: config
+        )
+        let window = hostSelectionTextView(textView)
+        defer { window.isHidden = true }
+        let manager = textView.textLayoutManager
+        textView.configureSpoilerIfNeeded()
+        textView.setNeedsLayout()
+        textView.layoutIfNeeded()
+        let settled = expectation(description: "Spoiler overlays laid out")
+        DispatchQueue.main.async { settled.fulfill() }
+        wait(for: [settled], timeout: 2)
+        let overlays = textView.subviews.filter { view in
+            view.subviews.contains { $0 is UIVisualEffectView }
+        }
+        XCTAssertGreaterThan(overlays.count, 1)
+        XCTAssertTrue(overlays.allSatisfy { !$0.frame.isEmpty })
+        XCTAssertTrue(textView.textLayoutManager === manager)
+    }
+
+    @MainActor
+    func testTextInputSelectionAlsoSupportsLegacyTextKit() {
+        guard #available(iOS 16.0, *) else { return }
+        let textView = UITextView(usingTextLayoutManager: false)
+        textView.isEditable = false
+        textView.isSelectable = false
+        textView.isScrollEnabled = false
+        textView.text = "Legacy paragraph\n\n第二段"
+        let window = hostSelectionTextView(textView)
+        defer { window.isHidden = true }
+        let range = NSRange(location: 0, length: (textView.text as NSString).length)
+        XCTAssertFalse(TopicTextInputGeometry.rects(in: textView, for: range).isEmpty)
+        XCTAssertNotNil(TopicTextInputGeometry.offset(in: textView, at: CGPoint(x: 20, y: 12)))
+        VirtualTextSelectionGeometry.apply(range: range, to: textView)
+        XCTAssertNil(textView.textLayoutManager)
+    }
+
+    @MainActor
+    private func hostSelectionTextView(_ textView: UITextView) -> UIWindow {
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 420, height: 912))
+        let controller = UIViewController()
+        window.rootViewController = controller
+        textView.frame = CGRect(x: 12, y: 180, width: 396, height: 200)
+        controller.view.addSubview(textView)
+        window.isHidden = false
+        controller.view.layoutIfNeeded()
+        textView.layoutIfNeeded()
+        return window
+    }
+
+    @MainActor
     func testTextServicesExposeCompleteSelectionWithoutAdditionalHandles() {
         let service = TopicSelectionTextServicesView()
         let selectedText = "Markdown 标题\n\n第一段 😀\n\n第二段"

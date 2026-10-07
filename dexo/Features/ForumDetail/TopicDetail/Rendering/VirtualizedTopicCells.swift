@@ -109,7 +109,7 @@ protocol VirtualSelectionSurface where Self: UICollectionViewCell {
     func selectionCaretRect(at offset: Int, downstream: Bool) -> CGRect?
 }
 
-private enum VirtualTextSelectionGeometry {
+enum VirtualTextSelectionGeometry {
     private static let highlightLayerName = "DexoExternalSelectionHighlight"
 
     static func textView(in root: UIView) -> UITextView? {
@@ -120,23 +120,14 @@ private enum VirtualTextSelectionGeometry {
         return nil
     }
 
-    static func offset(in textView: UITextView, at point: CGPoint) -> Int {
-        let location = CGPoint(
-            x: point.x - textView.textContainerInset.left,
-            y: point.y - textView.textContainerInset.top
-        )
-        return min(
-            textView.attributedText.length,
-            textView.layoutManager.characterIndex(
-                for: location,
-                in: textView.textContainer,
-                fractionOfDistanceBetweenInsertionPoints: nil
-            )
-        )
+    static func offset(in textView: UITextView, at point: CGPoint) -> Int? {
+        TopicTextInputGeometry.offset(in: textView, at: point)
     }
 
     static func wordRange(in textView: UITextView, at point: CGPoint) -> NSRange? {
-        let index = offset(in: textView, at: point)
+        guard let index = TopicTextInputGeometry.characterRange(in: textView, at: point)?.location
+            ?? offset(in: textView, at: point)
+        else { return nil }
         let text = textView.attributedText.string
         let length = (text as NSString).length
         guard length > 0 else { return nil }
@@ -165,24 +156,13 @@ private enum VirtualTextSelectionGeometry {
         else { return }
 
         let path = UIBezierPath()
-        let glyphRange = textView.layoutManager.glyphRange(
-            forCharacterRange: range,
-            actualCharacterRange: nil
-        )
-        textView.layoutManager.enumerateEnclosingRects(
-            forGlyphRange: glyphRange,
-            withinSelectedGlyphRange: glyphRange,
-            in: textView.textContainer
-        ) { rect, _ in
-            let adjusted = rect.offsetBy(
-                dx: textView.textContainerInset.left,
-                dy: textView.textContainerInset.top
-            )
-            path.append(UIBezierPath(roundedRect: adjusted, cornerRadius: 2))
+        for rect in TopicTextInputGeometry.rects(in: textView, for: range) {
+            path.append(UIBezierPath(roundedRect: rect, cornerRadius: 2))
         }
         let layer = CAShapeLayer()
         layer.name = highlightLayerName
         layer.frame = textView.bounds
+        layer.bounds = textView.bounds
         layer.path = path.cgPath
         layer.fillColor = UIColor.systemBlue.withAlphaComponent(0.28).cgColor
         textView.layer.addSublayer(layer)
