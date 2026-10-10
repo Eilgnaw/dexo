@@ -7,6 +7,12 @@
 <p align="center">一个原生 iOS Discourse 论坛客户端，使用 UIKit + Swift 构建。</p>
 
 <p align="center">
+  <a href="https://apps.apple.com/us/app/dexo/id6760928014">
+    <img src="https://tools.applemediaservices.com/api/badges/download-on-the-app-store/black/zh-cn?size=250x83" alt="在 App Store 下载" height="50" />
+  </a>
+</p>
+
+<p align="center">
   <a href="README.md">English</a> | 中文
 </p>
 
