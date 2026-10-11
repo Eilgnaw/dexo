@@ -155,7 +155,11 @@ extension MessagesViewController: UITableViewDelegate {
         tableView.deselectRow(at: indexPath, animated: true)
         let topic = viewModel.messages[indexPath.row]
         Task { await viewModel.markMessageRead(topicId: topic.id) }
-        let detailVC = TopicDetailControllerFactory.make(api: api, topicId: topic.id)
+        let detailVC = TopicDetailControllerFactory.make(
+            api: api,
+            topicId: topic.id,
+            initialFloor: topic.resumePostNumber
+        )
         navigationController?.pushViewController(detailVC, animated: true)
     }
 }

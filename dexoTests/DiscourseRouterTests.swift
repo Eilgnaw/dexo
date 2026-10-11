@@ -48,6 +48,25 @@ final class DiscourseRouterTests: XCTestCase {
         XCTAssertEqual(topic.method, .put)
     }
 
+    func testTopicRoutesTrackVisitsForFlatAndInitialNestedLoads() {
+        XCTAssertEqual(
+            DiscourseRouter.topic(id: 42).path,
+            "/t/42.json?track_visit=true"
+        )
+        XCTAssertEqual(
+            DiscourseRouter.topic(id: 42, nearPostNumber: 9).path,
+            "/t/42/9.json?track_visit=true&forceLoad=true"
+        )
+        XCTAssertEqual(
+            DiscourseRouter.nestedTopic(id: 42, slug: "topic", sort: nil, page: 0).path,
+            "/n/topic/42.json?track_visit=true"
+        )
+        XCTAssertEqual(
+            DiscourseRouter.nestedTopic(id: 42, slug: "topic", sort: nil, page: 1).path,
+            "/n/topic/42.json?page=1"
+        )
+    }
+
     func testPostEditPermissionsDecodeAndDefaultToDenied() throws {
         let editableData = Data(
             #"{"id":1,"username":"alice","post_number":2,"can_edit":true,"yours":true}"#.utf8

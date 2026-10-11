@@ -98,10 +98,43 @@ final class TopicListModelTests: XCTestCase {
         )
     }
 
+    func testTopicDecodesReadPositionAndResumesAtFirstUnreadPost() throws {
+        let topic = try decodeTopic(
+            tagsJSON: nil,
+            lastReadPostNumber: 7,
+            highestPostNumber: 12
+        )
+
+        XCTAssertEqual(topic.lastReadPostNumber, 7)
+        XCTAssertEqual(topic.highestPostNumber, 12)
+        XCTAssertEqual(topic.resumePostNumber, 8)
+    }
+
+    func testFullyReadTopicResumesAtLastPost() throws {
+        let topic = try decodeTopic(
+            tagsJSON: nil,
+            lastReadPostNumber: 12,
+            highestPostNumber: 12
+        )
+
+        XCTAssertEqual(topic.resumePostNumber, 12)
+    }
+
+    func testNewTopicStillOpensFromOriginalPost() throws {
+        let topic = try decodeTopic(
+            tagsJSON: nil,
+            highestPostNumber: 12
+        )
+
+        XCTAssertNil(topic.resumePostNumber)
+    }
+
     private func decodeTopic(
         tagsJSON: String?,
         bumpedAt: String? = nil,
-        lastPostedAt: String? = nil
+        lastPostedAt: String? = nil,
+        lastReadPostNumber: Int? = nil,
+        highestPostNumber: Int? = nil
     ) throws -> DiscourseTopicList.Topic {
         var fields = [
             #""id":1"#,
@@ -117,6 +150,12 @@ final class TopicListModelTests: XCTestCase {
         }
         if let bumpedAt {
             fields.append(#""bumped_at":"\#(bumpedAt)""#)
+        }
+        if let lastReadPostNumber {
+            fields.append(#""last_read_post_number":\#(lastReadPostNumber)"#)
+        }
+        if let highestPostNumber {
+            fields.append(#""highest_post_number":\#(highestPostNumber)"#)
         }
         if let tagsJSON {
             fields.append(#""tags":\#(tagsJSON)"#)

@@ -84,6 +84,11 @@ struct DiscourseTopicList: Decodable {
         let lastPostedAt: String?
         let bumpedAt: String?
         let lastVisitedAt: String?
+        /// Highest post the current user has read, when authenticated.
+        let lastReadPostNumber: Int?
+        /// Highest existing post number in the topic. Unlike `postsCount`,
+        /// this remains correct when deleted posts leave numbering gaps.
+        let highestPostNumber: Int?
         let pinned: Bool?
         let unseen: Bool?
         let excerpt: String?
@@ -100,6 +105,8 @@ struct DiscourseTopicList: Decodable {
             case lastPostedAt = "last_posted_at"
             case bumpedAt = "bumped_at"
             case lastVisitedAt = "last_visited_at"
+            case lastReadPostNumber = "last_read_post_number"
+            case highestPostNumber = "highest_post_number"
             case tags
         }
 
@@ -115,6 +122,8 @@ struct DiscourseTopicList: Decodable {
             lastPostedAt: String?,
             bumpedAt: String?,
             lastVisitedAt: String?,
+            lastReadPostNumber: Int? = nil,
+            highestPostNumber: Int? = nil,
             pinned: Bool?,
             unseen: Bool?,
             excerpt: String?,
@@ -132,6 +141,8 @@ struct DiscourseTopicList: Decodable {
             self.lastPostedAt = lastPostedAt
             self.bumpedAt = bumpedAt
             self.lastVisitedAt = lastVisitedAt
+            self.lastReadPostNumber = lastReadPostNumber
+            self.highestPostNumber = highestPostNumber
             self.pinned = pinned
             self.unseen = unseen
             self.excerpt = excerpt
@@ -152,6 +163,8 @@ struct DiscourseTopicList: Decodable {
             lastPostedAt = try container.decodeIfPresent(String.self, forKey: .lastPostedAt)
             bumpedAt = try container.decodeIfPresent(String.self, forKey: .bumpedAt)
             lastVisitedAt = try container.decodeIfPresent(String.self, forKey: .lastVisitedAt)
+            lastReadPostNumber = try container.decodeIfPresent(Int.self, forKey: .lastReadPostNumber)
+            highestPostNumber = try container.decodeIfPresent(Int.self, forKey: .highestPostNumber)
             pinned = try container.decodeIfPresent(Bool.self, forKey: .pinned)
             unseen = try container.decodeIfPresent(Bool.self, forKey: .unseen)
             excerpt = try container.decodeIfPresent(String.self, forKey: .excerpt)
@@ -160,6 +173,17 @@ struct DiscourseTopicList: Decodable {
             // versions return { id, name, slug } objects. A malformed optional
             // tag list must not make the entire topic page fail to decode.
             tags = (try? container.decodeIfPresent([TopicListTag].self, forKey: .tags)) ?? []
+        }
+
+        /// Opens at the first unread post, or the last post when the topic is
+        /// already fully read. A missing read marker means the topic is new and
+        /// should still open from the OP.
+        var resumePostNumber: Int? {
+            guard let lastReadPostNumber, lastReadPostNumber > 0 else { return nil }
+            guard let highestPostNumber, highestPostNumber > 0 else {
+                return lastReadPostNumber + 1
+            }
+            return min(lastReadPostNumber + 1, highestPostNumber)
         }
     }
 }

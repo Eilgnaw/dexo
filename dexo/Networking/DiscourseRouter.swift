@@ -111,11 +111,14 @@ enum DiscourseRouter {
             // for deep-link entry (notification tap, reply jump) so we avoid
             // fetching the OP batch just to throw it away. `track_visit` updates
             // read state; `forceLoad` bypasses cache so a just-created reply shows.
-            var params: [String] = []
+            // JSON topic requests do not count as visits unless this flag is
+            // present. `/read.json` is ordered and filtered by the server's
+            // `last_visited_at`, which `/topics/timings` does not reliably set
+            // for an existing TopicUser row.
+            var params: [String] = ["track_visit=true"]
             let basePath: String
             if let nearPostNumber, nearPostNumber > 1 {
                 basePath = "/t/\(id)/\(nearPostNumber).json"
-                params.append("track_visit=true")
                 params.append("forceLoad=true")
             } else {
                 basePath = "/t/\(id).json"
@@ -131,7 +134,10 @@ enum DiscourseRouter {
             // Discourse accepts `-` as a slug placeholder, so first opens
             // (when we don't have the slug yet) still work.
             let slugComponent = slug.map { $0.isEmpty ? "-" : $0 } ?? "-"
-            var params: [String] = []
+            // Nested JSON responses use the same explicit visit opt-in as the
+            // flat topic endpoint. Only the initial page should move the
+            // server-side visit timestamp.
+            var params: [String] = page == 0 ? ["track_visit=true"] : []
             if let sort, !sort.isEmpty { params.append("sort=\(sort)") }
             if page > 0 { params.append("page=\(page)") }
             let query = params.isEmpty ? "" : "?" + params.joined(separator: "&")

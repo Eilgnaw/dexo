@@ -365,9 +365,15 @@ final class ReadTopicsViewController: ObservableViewController {
 extension ReadTopicsViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
-        guard let topicId = dataSource.itemIdentifier(for: indexPath) else { return }
+        guard let topicId = dataSource.itemIdentifier(for: indexPath),
+              let row = viewModel.row(id: topicId)
+        else { return }
         navigationController?.pushViewController(
-            TopicDetailControllerFactory.make(api: api, topicId: topicId),
+            TopicDetailControllerFactory.make(
+                api: api,
+                topicId: topicId,
+                initialFloor: row.topic.resumePostNumber
+            ),
             animated: true
         )
     }

@@ -1,4 +1,4 @@
-Long-press or double-tap words in post content, including Markdown headings, paragraphs, lists, code and images. Selection should appear after about 0.45 seconds without lifting your finger; keep holding to select across blocks and scroll automatically near the screen edges.
-Drag either selection handle to adjust the range: selection must not disappear, embedded quotes stay independent, and one tap outside should clear both selection and menu. No extra handles should appear.
-Check that Copy, Select All, Look Up, Translate and Share use the actual selected text. The topic title is excluded; links and image previews should still work.
-Check smooth scrolling in long posts, and regress the tab bar when returning to Home/Search, visibility-based GIF/WebP playback, and spoiler conceal/reveal in light and dark mode.
+Verify server-side read history and reading-position restoration on authenticated forums.
+Open topics from Home, pinned topics, categories, tags, Cloud Read and messages. A partially read topic should open at the first unread post, a fully read topic at its last post, and a new topic at the original post.
+After reading a topic, confirm it appears in the forum's Cloud Read list. Test both flat and nested reply modes, and confirm reading-time uploads continue without login or Cloudflare errors.
+Regression-check notification and deep-link navigation: links to a specific post must still open that exact post rather than the saved reading position.

@@ -241,7 +241,11 @@ extension CategoryTopicsViewController: UITableViewDelegate {
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
         guard let topicId = dataSource.itemIdentifier(for: indexPath) else { return }
-        let detailVC = TopicDetailControllerFactory.make(api: api, topicId: topicId)
+        let detailVC = TopicDetailControllerFactory.make(
+            api: api,
+            topicId: topicId,
+            initialFloor: viewModel.topics.first(where: { $0.id == topicId })?.resumePostNumber
+        )
         navigationController?.pushViewController(detailVC, animated: true)
     }
 
