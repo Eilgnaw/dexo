@@ -104,14 +104,11 @@ final class TopicDetailViewModel {
         postsById = Dictionary(posts.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
     }
 
-    /// OP's username. Sourced from the cached `firstPost` (set when post 1 is
-    /// loaded). Returns `nil` rather than guessing from `posts.first` — when the
-    /// loaded window doesn't include post 1 (entry via search/notification, or
-    /// after a reply lands deep in the stream), the top of the batch is some
-    /// random middle post and treating its author as the OP marks the wrong
-    /// cells. Better to show no OP badge than the wrong one.
+    /// OP's username. Topic responses identify the author through
+    /// `details.created_by`, including when the loaded window is centered on a
+    /// deep floor. `firstPost` remains a fallback for nested/legacy payloads.
     var opUsername: String? {
-        firstPost?.username
+        topic?.originalPosterUsername ?? firstPost?.username
     }
 
     var visiblePosts: [DiscourseTopicDetail.Post] {
@@ -706,7 +703,8 @@ final class TopicDetailViewModel {
                 acceptedAnswers: acceptedAnswers,
                 hasAcceptedAnswer: hasAcceptedAnswer,
                 lastReadPostNumber: nil,
-                archetype: topicMeta.archetype
+                archetype: topicMeta.archetype,
+                originalPosterUsername: opPost.username
             )
             topic = synthetic
             recordLocalReadIfNeeded(synthetic)
@@ -927,13 +925,10 @@ final class TopicDetailViewModel {
             allPostIds = detail.postStream.stream ?? detail.postStream.posts.map(\.id)
             loadedPostIds = Set(detail.postStream.posts.map(\.id))
 
-            // Cache the OP only when the batch actually starts from post 1.
-            // With `near_post_number` the batch is centered elsewhere and
-            // `posts.first` is not the OP — in that case preserve whatever was
-            // cached from a prior same-topic load (set to nil above for a new
-            // topic), so `opUsername` keeps reporting the real OP.
-            if detail.postStream.posts.first?.postNumber == 1 {
-                firstPost = detail.postStream.posts.first
+            // Keep the complete OP when post 1 is present; deep-link payloads
+            // use `detail.originalPosterUsername` for author identification.
+            if let loadedOriginalPoster = detail.postStream.posts.first(where: { $0.postNumber == 1 }) {
+                firstPost = loadedOriginalPoster
             }
 
             // Range tracking — derive from the first/last posts actually returned

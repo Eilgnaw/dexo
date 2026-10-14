@@ -89,6 +89,17 @@ final class DiscourseRouterTests: XCTestCase {
         XCTAssertFalse(missing.isEditableByCurrentUser)
     }
 
+    func testTopicDetailDecodesOriginalPosterFromDetails() throws {
+        let data = Data(
+            #"{"id":99,"title":"Topic","posts_count":42,"reply_count":41,"created_at":"2026-10-15T00:00:00Z","post_stream":{"posts":[{"id":120,"username":"bob","post_number":20}]},"details":{"created_by":{"id":1,"username":"alice"}}}"#.utf8
+        )
+
+        let topic = try JSONDecoder().decode(DiscourseTopicDetail.self, from: data)
+
+        XCTAssertEqual(topic.originalPosterUsername, "alice")
+        XCTAssertEqual(topic.postStream.posts.first?.username, "bob")
+    }
+
     func testEditRequestBuildersPreserveConflictAndTagFields() {
         let postPayload = DiscourseEditRequestBuilder.post(
             raw: "new body",

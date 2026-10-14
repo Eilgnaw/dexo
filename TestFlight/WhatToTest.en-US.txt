@@ -1,3 +1,3 @@
-Like a post that you have not already liked in either a topic or its replies list. After the server confirms the like, the app requests the system review sheet; the system may choose not to display it based on device and account policy.
-Unlike actions, reactions, and failed like requests must not trigger a review request, and the same app version must not request again.
-Regression-check the liked icon, count, animation, and refreshed server state.
+Open a topic from a search result that points to a reply, or resume a previously read topic at a later post.
+Posts written by the topic author should continue to show the author's name in the accent color even when the first post is not currently loaded.
+Also verify that opening a topic from the beginning and jumping between floors preserve the same author highlighting.

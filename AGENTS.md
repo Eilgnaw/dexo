@@ -36,6 +36,13 @@ Only the `CookedHTML` package has tests. There are no app-level tests.
 cd Packages/CookedHTML && swift test
 ```
 
+## WhatToTest
+
+- `TestFlight/WhatToTest.en-US.txt` and `TestFlight/WhatToTest.zh-Hans.txt` are user-facing TestFlight notes, not internal change logs.
+- Include only behavior users can observe and useful steps they can perform to verify it.
+- Do not include unrelated changes, implementation details, class or file names, internal tooling, build steps, or developer-only diagnostics.
+- Keep the English and Simplified Chinese versions aligned in meaning and natural in each language.
+
 ## Architecture
 
 Dexo is a native iOS Discourse forum client (UIKit, iOS 15+). No SwiftUI.

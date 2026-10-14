@@ -21,6 +21,10 @@ struct DiscourseTopicDetail: Decodable {
     /// "first unread" shortcut.
     let lastReadPostNumber: Int?
     let archetype: String?
+    /// Topic author supplied by `details.created_by`. Unlike the loaded post
+    /// window, this remains available when the response is centered on a deep
+    /// floor and therefore does not contain post 1.
+    let originalPosterUsername: String?
 
     enum CodingKeys: String, CodingKey {
         case id, title, tags, archetype
@@ -35,6 +39,19 @@ struct DiscourseTopicDetail: Decodable {
         case acceptedAnswer = "accepted_answer"
         case hasAcceptedAnswer = "has_accepted_answer"
         case lastReadPostNumber = "last_read_post_number"
+        case details
+    }
+
+    private struct Details: Decodable {
+        let createdBy: Creator?
+
+        enum CodingKeys: String, CodingKey {
+            case createdBy = "created_by"
+        }
+    }
+
+    private struct Creator: Decodable {
+        let username: String
     }
 
     init(from decoder: Decoder) throws {
@@ -61,6 +78,7 @@ struct DiscourseTopicDetail: Decodable {
             ?? !acceptedAnswers.isEmpty
         lastReadPostNumber = try? container.decodeIfPresent(Int.self, forKey: .lastReadPostNumber)
         archetype = try? container.decodeIfPresent(String.self, forKey: .archetype)
+        originalPosterUsername = (try? container.decode(Details.self, forKey: .details))?.createdBy?.username
     }
 
     /// Memberwise initializer used to synthesize a `DiscourseTopicDetail` from
@@ -81,7 +99,8 @@ struct DiscourseTopicDetail: Decodable {
         acceptedAnswers: [AcceptedAnswer] = [],
         hasAcceptedAnswer: Bool? = nil,
         lastReadPostNumber: Int?,
-        archetype: String? = nil
+        archetype: String? = nil,
+        originalPosterUsername: String? = nil
     ) {
         self.id = id
         self.title = title
@@ -97,6 +116,7 @@ struct DiscourseTopicDetail: Decodable {
         self.hasAcceptedAnswer = hasAcceptedAnswer ?? !acceptedAnswers.isEmpty
         self.lastReadPostNumber = lastReadPostNumber
         self.archetype = archetype
+        self.originalPosterUsername = originalPosterUsername
     }
 
     struct PostStream: Decodable {
