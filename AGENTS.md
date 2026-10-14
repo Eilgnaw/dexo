@@ -12,6 +12,22 @@ make clean      # Clean Tuist build artifacts
 
 The `.xcodeproj` is not committed. Always run `make generate` after modifying `Project.swift`.
 
+## Xcode MCP and DeviceHub Workflow
+
+- Unless the user explicitly requests another workflow, use the Xcode-provided MCP tools for project discovery, building, installation, launching, testing, log capture, and debugging.
+- Use the existing devices managed by DeviceHub. Prefer a Simulator that is already booted in DeviceHub; switch to another device only when the user explicitly specifies one or the booted device cannot satisfy the task.
+- A request to compile, deploy, run, test, reproduce, or debug this project authorizes using Xcode MCP with an existing DeviceHub device for the complete workflow.
+- Reuse existing DeviceHub devices. Do not create, clone, or require a new disposable Simulator unless the user specifically asks for one, and do not pause to ask about Simulator selection when an appropriate booted device is available.
+- Do not perform or request routine code-signing, entitlement, app-data backup, or App Group container backup checks before installing or running through Xcode MCP unless the user specifically asks for those checks. Do not repeatedly warn about signing or backups during normal iterations.
+- For DeviceHub UI automation, always use `axe describe-ui --udid <UDID>` to read the accessibility hierarchy and UI elements.
+- Always use `axe tap --udid <UDID> ...` for UI click/tap operations.
+- Always use `axe screenshot --udid <UDID> --output <PATH>` for Simulator screenshots.
+- Do not try Xcode MCP UI snapshot or screenshot tools before AXe unless the user explicitly requests them; Xcode MCP remains the default for building, installing, launching, testing, logs, and debugging.
+- Xcode 27 does not include `SimulatorKit.framework`; do not treat that as an incomplete installation. Use AXe for DeviceHub UI inspection and interaction.
+- Use direct `xcodebuild`, `simctl`, `devicectl`, or manual Xcode operation only as a fallback when the required Xcode MCP capability is unavailable.
+- For physical-device deployment, use XcodeBuildMCP, including its `xcodebuildmcp device` CLI when needed.
+- Do not erase, reset, or delete an existing device or its containers unless the user explicitly requests that destructive operation.
+
 ## Tests
 
 Only the `CookedHTML` package has tests. There are no app-level tests.

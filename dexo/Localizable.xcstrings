@@ -2494,6 +2494,7 @@
       }
     },
     "forum.sidebar.show" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -5020,6 +5021,7 @@
       }
     },
     "selection.select_all" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {

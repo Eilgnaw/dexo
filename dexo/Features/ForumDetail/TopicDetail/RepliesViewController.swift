@@ -482,6 +482,7 @@ extension RepliesViewController: PostCellDelegate {
                     try await api.unlikePost(postId: post.id)
                 }
                 playReactionSuccessFeedback(forPostId: post.id, animated: liked)
+                AppReviewRequestCoordinator.shared.requestAfterLikeChange(liked: liked)
                 if await refreshPost(id: post.id), liked {
                     playReactionDestinationFeedback(forPostId: post.id)
                 }

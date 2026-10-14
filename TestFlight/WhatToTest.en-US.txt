@@ -1,4 +1,3 @@
-Verify server-side read history and reading-position restoration on authenticated forums.
-Open topics from Home, pinned topics, categories, tags, Cloud Read and messages. A partially read topic should open at the first unread post, a fully read topic at its last post, and a new topic at the original post.
-After reading a topic, confirm it appears in the forum's Cloud Read list. Test both flat and nested reply modes, and confirm reading-time uploads continue without login or Cloudflare errors.
-Regression-check notification and deep-link navigation: links to a specific post must still open that exact post rather than the saved reading position.
+Like a post that you have not already liked in either a topic or its replies list. After the server confirms the like, the app requests the system review sheet; the system may choose not to display it based on device and account policy.
+Unlike actions, reactions, and failed like requests must not trigger a review request, and the same app version must not request again.
+Regression-check the liked icon, count, animation, and refreshed server state.

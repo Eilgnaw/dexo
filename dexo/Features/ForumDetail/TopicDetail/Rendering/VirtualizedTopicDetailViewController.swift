@@ -3011,6 +3011,7 @@ extension VirtualizedTopicDetailViewController: PostCellDelegate {
                 if liked { try await api.likePost(postId: post.id) }
                 else { try await api.unlikePost(postId: post.id) }
                 playReactionSuccessFeedback(forPostId: post.id, animated: liked)
+                AppReviewRequestCoordinator.shared.requestAfterLikeChange(liked: liked)
                 if let fresh = try? await api.fetchPost(id: post.id) {
                     await viewModel.replacePost(fresh)
                     if liked { pendingReactionConfirmationPostIds.insert(post.id) }
