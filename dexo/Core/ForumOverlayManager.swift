@@ -126,6 +126,9 @@ final class ForumOverlayManager {
             overlay.transform = CGAffineTransform(translationX: 0, y: window.bounds.height)
             UIView.animate(withDuration: 0.45, delay: 0, usingSpringWithDamping: 0.9, initialSpringVelocity: 0) {
                 overlay.transform = .identity
+            } completion: { [weak overlay, weak containerVC] _ in
+                overlay?.layoutIfNeeded()
+                containerVC?.reconcileSystemBarsAfterWindowPresentation()
             }
         }
         return containerVC

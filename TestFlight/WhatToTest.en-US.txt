@@ -1,3 +1,3 @@
-Open a forum in a wide window so the category sidebar appears beside the topic list.
-For categories with subcategories, verify that the expand and collapse arrows are gray rather than the app's accent color.
-Tap the arrows to expand and collapse subcategories, and confirm category selection and highlighting still work normally.
+On an iPad or unfolded foldable in a wide layout, open a forum, minimize it, and then open a different forum.
+After switching, the category sidebar, navigation controls, and Home, Me, and Search tabs should all remain visible immediately without sending the app to the background.
+Repeat the switch several times, then fold the device or narrow the window and confirm the compact navigation and tab bar still work normally.

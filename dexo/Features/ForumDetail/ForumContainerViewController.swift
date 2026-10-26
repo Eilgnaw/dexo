@@ -517,6 +517,11 @@ final class ForumContainerViewController: BaseViewController, AuthGating {
         )
     }
 
+    func reconcileSystemBarsAfterWindowPresentation() {
+        guard let tabBarVC = children.first as? ForumTabBarController else { return }
+        tabBarVC.syncTabBarVisibility(force: true)
+    }
+
     @objc private func updateTabBarTheme() {
         if let tabBarVC = children.first as? ForumTabBarController {
             tabBarVC.tabBar.tintColor = ThemeManager.shared.accentColor

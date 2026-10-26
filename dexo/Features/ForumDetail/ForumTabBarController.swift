@@ -67,7 +67,8 @@ final class ForumTabBarController: UITabBarController, UITabBarControllerDelegat
     func syncTabBarVisibility(
         homeShowingDetail: Bool? = nil,
         showing viewController: UIViewController? = nil,
-        animated: Bool = false
+        animated: Bool = false,
+        force: Bool = false
     ) {
         guard isViewLoaded else { return }
         let shouldHide: Bool
@@ -82,6 +83,12 @@ final class ForumTabBarController: UITabBarController, UITabBarControllerDelegat
         }
 
         if #available(iOS 18.0, *) {
+            // A newly presented secondary UIWindow can leave UIKit's private
+            // tab-bar group collapsed even though isTabBarHidden is false.
+            // Cycling through the hidden state makes UIKit rebuild that group.
+            if force, !shouldHide, !isTabBarHidden {
+                setTabBarHidden(true, animated: false)
+            }
             guard isTabBarHidden != shouldHide else { return }
             setTabBarHidden(shouldHide, animated: animated)
         } else {
