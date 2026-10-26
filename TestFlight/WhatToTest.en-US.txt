@@ -1,3 +1,3 @@
-Open a topic from a search result that points to a reply, or resume a previously read topic at a later post.
-Posts written by the topic author should continue to show the author's name in the accent color even when the first post is not currently loaded.
-Also verify that opening a topic from the beginning and jumping between floors preserve the same author highlighting.
+Open a forum in a wide window so the category sidebar appears beside the topic list.
+For categories with subcategories, verify that the expand and collapse arrows are gray rather than the app's accent color.
+Tap the arrows to expand and collapse subcategories, and confirm category selection and highlighting still work normally.

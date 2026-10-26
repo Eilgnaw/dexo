@@ -378,7 +378,7 @@ private final class ForumCategorySidebarViewController: ObservableViewController
                 let button = UIButton(type: .system)
                 button.frame = CGRect(x: 0, y: 0, width: 44, height: 44)
                 button.setImage(UIImage(systemName: expanded ? "chevron.down" : "chevron.right"), for: .normal)
-                button.tintColor = ThemeManager.shared.accentColor
+                button.tintColor = .tertiaryLabel
                 button.accessibilityLabel = expanded
                     ? String(localized: "forum.sidebar.collapse_subcategories")
                     : String(localized: "forum.sidebar.expand_subcategories")
