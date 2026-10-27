@@ -358,20 +358,20 @@ extension SettingsViewController: UITableViewDelegate {
                 showAppearancePicker(from: sourceView)
             case .theme:
                 let vc = ThemePickerViewController()
-                navigationController?.pushViewController(vc, animated: true)
+                pushViewControllerAdaptively(vc, animated: true)
             case .appIcon:
                 let vc = AppIconPickerViewController()
                 vc.onSelectionChanged = { [weak self] in
                     self?.reloadAppearanceSection()
                 }
-                navigationController?.pushViewController(vc, animated: true)
+                pushViewControllerAdaptively(vc, animated: true)
             case .fontSize:
                 let vc = FontSizeViewController()
-                navigationController?.pushViewController(vc, animated: true)
+                pushViewControllerAdaptively(vc, animated: true)
             }
         case .storage:
             let vc = CacheViewController()
-            navigationController?.pushViewController(vc, animated: true)
+            pushViewControllerAdaptively(vc, animated: true)
         case .about:
             switch AboutRow(rawValue: indexPath.row)! {
             case .feedback:
@@ -383,7 +383,7 @@ extension SettingsViewController: UITableViewDelegate {
             }
         case .network:
             let viewController = DoHSettingsViewController()
-            navigationController?.pushViewController(viewController, animated: true)
+            pushViewControllerAdaptively(viewController, animated: true)
         #if DEBUG
         case .debug:
             switch DebugRow(rawValue: indexPath.row)! {
@@ -391,10 +391,10 @@ extension SettingsViewController: UITableViewDelegate {
                 showRenderPreviewInput()
             case .webViewProxyTest:
                 let viewController = WebViewProxyTestViewController()
-                navigationController?.pushViewController(viewController, animated: true)
+                pushViewControllerAdaptively(viewController, animated: true)
             case .urlSessionProxyTest:
                 let viewController = URLSessionProxyTestViewController()
-                navigationController?.pushViewController(viewController, animated: true)
+                pushViewControllerAdaptively(viewController, animated: true)
             }
         #endif
         }
@@ -488,7 +488,7 @@ extension SettingsViewController {
             let baseURL = "\(scheme)://\(host)"
             let api = DiscourseAPI(baseURL: baseURL)
             let vc = TopicDetailControllerFactory.make(api: api, topicId: topicId)
-            self.navigationController?.pushViewController(vc, animated: true)
+            self.pushViewControllerAdaptively(vc, animated: true)
         })
         alert.addAction(UIAlertAction(title: String(localized: "action.cancel"), style: .cancel))
         present(alert, animated: true)

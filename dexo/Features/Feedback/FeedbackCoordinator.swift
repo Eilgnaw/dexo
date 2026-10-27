@@ -53,8 +53,8 @@ final class FeedbackCoordinator {
             )
             feedbackViewController = viewController
 
-            if presentation == .push, let navigationController = source.navigationController {
-                navigationController.pushViewController(viewController, animated: true)
+            if presentation == .push, source.navigationController != nil {
+                source.pushViewControllerAdaptively(viewController, animated: true)
             } else {
                 let navigationController = UINavigationController(rootViewController: viewController)
                 navigationController.modalPresentationStyle = .pageSheet

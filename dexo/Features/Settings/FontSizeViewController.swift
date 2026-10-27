@@ -54,6 +54,7 @@ final class FontSizeViewController: ObservableViewController {
     }
 
     private func setupUI() {
+        let safeArea = view.safeAreaLayoutGuide
         let card = UIView()
         card.backgroundColor = ThemeManager.shared.cardBackgroundColor
         card.layer.cornerRadius = 12
@@ -100,9 +101,9 @@ final class FontSizeViewController: ObservableViewController {
         view.addSubview(hintLabel)
 
         NSLayoutConstraint.activate([
-            card.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 20),
-            card.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
-            card.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
+            card.topAnchor.constraint(equalTo: safeArea.topAnchor, constant: 20),
+            card.leadingAnchor.constraint(equalTo: safeArea.leadingAnchor, constant: 20),
+            card.trailingAnchor.constraint(equalTo: safeArea.trailingAnchor, constant: -20),
 
             previewLabel.topAnchor.constraint(equalTo: card.topAnchor, constant: 24),
             previewLabel.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 20),
@@ -113,8 +114,8 @@ final class FontSizeViewController: ObservableViewController {
             levelLabel.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -20),
 
             sliderContainer.topAnchor.constraint(equalTo: card.bottomAnchor, constant: 20),
-            sliderContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
-            sliderContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
+            sliderContainer.leadingAnchor.constraint(equalTo: safeArea.leadingAnchor, constant: 20),
+            sliderContainer.trailingAnchor.constraint(equalTo: safeArea.trailingAnchor, constant: -20),
 
             smallALabel.leadingAnchor.constraint(equalTo: sliderContainer.leadingAnchor, constant: 16),
             smallALabel.centerYAnchor.constraint(equalTo: sliderContainer.centerYAnchor),
@@ -128,8 +129,8 @@ final class FontSizeViewController: ObservableViewController {
             largeALabel.centerYAnchor.constraint(equalTo: sliderContainer.centerYAnchor),
 
             toggleContainer.topAnchor.constraint(equalTo: sliderContainer.bottomAnchor, constant: 20),
-            toggleContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
-            toggleContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
+            toggleContainer.leadingAnchor.constraint(equalTo: safeArea.leadingAnchor, constant: 20),
+            toggleContainer.trailingAnchor.constraint(equalTo: safeArea.trailingAnchor, constant: -20),
 
             toggleLabel.leadingAnchor.constraint(equalTo: toggleContainer.leadingAnchor, constant: 16),
             toggleLabel.centerYAnchor.constraint(equalTo: toggleContainer.centerYAnchor),
@@ -140,8 +141,8 @@ final class FontSizeViewController: ObservableViewController {
             toggle.bottomAnchor.constraint(equalTo: toggleContainer.bottomAnchor, constant: -12),
 
             hintLabel.topAnchor.constraint(equalTo: toggleContainer.bottomAnchor, constant: 8),
-            hintLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 36),
-            hintLabel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -36),
+            hintLabel.leadingAnchor.constraint(equalTo: safeArea.leadingAnchor, constant: 36),
+            hintLabel.trailingAnchor.constraint(equalTo: safeArea.trailingAnchor, constant: -36),
         ])
     }
 

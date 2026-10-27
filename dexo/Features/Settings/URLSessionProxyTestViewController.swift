@@ -101,10 +101,11 @@ final class URLSessionProxyTestViewController: BaseViewController {
         view.addSubview(statusCard)
         view.addSubview(resultTextView)
 
+        let safeArea = view.safeAreaLayoutGuide
         NSLayoutConstraint.activate([
-            addressCard.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 16),
-            addressCard.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
-            addressCard.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
+            addressCard.topAnchor.constraint(equalTo: safeArea.topAnchor, constant: 16),
+            addressCard.leadingAnchor.constraint(equalTo: safeArea.leadingAnchor, constant: 16),
+            addressCard.trailingAnchor.constraint(equalTo: safeArea.trailingAnchor, constant: -16),
 
             addressField.topAnchor.constraint(equalTo: addressCard.topAnchor, constant: 10),
             addressField.bottomAnchor.constraint(equalTo: addressCard.bottomAnchor, constant: -10),
@@ -128,7 +129,7 @@ final class URLSessionProxyTestViewController: BaseViewController {
             resultTextView.topAnchor.constraint(equalTo: statusCard.bottomAnchor, constant: 12),
             resultTextView.leadingAnchor.constraint(equalTo: addressCard.leadingAnchor),
             resultTextView.trailingAnchor.constraint(equalTo: addressCard.trailingAnchor),
-            resultTextView.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -16),
+            resultTextView.bottomAnchor.constraint(equalTo: safeArea.bottomAnchor, constant: -16),
         ])
 
         updateStatus(String(localized: "settings.debug.urlsession_proxy_test.starting"), isBusy: true)

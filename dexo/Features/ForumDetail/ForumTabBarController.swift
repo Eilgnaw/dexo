@@ -8,6 +8,7 @@ final class ForumTabBarController: UITabBarController, UITabBarControllerDelegat
     private weak var authGate: AuthGating?
     private(set) var navigationControllers: [UINavigationController] = []
     private(set) var homeSplitViewController: ForumHomeSplitViewController?
+    private(set) var meSplitViewController: AdaptiveNavigationSplitViewController?
     var notificationPoller: NotificationPoller?
     var onSelectionChanged: (() -> Void)?
 
@@ -35,27 +36,34 @@ final class ForumTabBarController: UITabBarController, UITabBarControllerDelegat
         homeRoot.tabBarItem = UITabBarItem(title: String(localized: "tab.home"), image: UIImage(systemName: "house"), tag: 0)
 
         let meVC = MeViewController(api: api, authGate: authGate)
-        let meNav = ForumNavigationController(rootViewController: meVC)
-        meNav.delegate = self
-        meNav.tabBarItem = UITabBarItem(title: String(localized: "tab.me"), image: UIImage(systemName: "person"), tag: 1)
+        let meRoot = AdaptiveNavigationSplitViewController(rootViewController: meVC)
+        meSplitViewController = meRoot
+        meRoot.tabBarItem = UITabBarItem(title: String(localized: "tab.me"), image: UIImage(systemName: "person"), tag: 1)
+        meRoot.onNavigationChange = { [weak self, weak meRoot] viewController, showsDetail in
+            guard let self, let meRoot, self.selectedViewController === meRoot else { return }
+            self.syncTabBarVisibility(
+                showing: viewController,
+                adaptiveShowingDetail: showsDetail
+            )
+        }
 
         let searchVC = SearchViewController(api: api)
         let searchNav = ForumNavigationController(rootViewController: searchVC)
         searchNav.delegate = self
         searchNav.tabBarItem = UITabBarItem(title: String(localized: "search.title"), image: UIImage(systemName: "magnifyingglass"), tag: 2)
 
-        navigationControllers = [homeRoot.topicNavigationController, meNav, searchNav]
+        navigationControllers = [homeRoot.topicNavigationController, meRoot.primaryNavigationController, searchNav]
 
         if #available(iOS 18.0, *) {
             let homeTab = UITab(title: String(localized: "tab.home"), image: UIImage(systemName: "house"), identifier: "home") { _ in homeRoot }
-            let meTab = UITab(title: String(localized: "tab.me"), image: UIImage(systemName: "person"), identifier: "me") { _ in meNav }
+            let meTab = UITab(title: String(localized: "tab.me"), image: UIImage(systemName: "person"), identifier: "me") { _ in meRoot }
             let searchTab = UISearchTab { _ in searchNav }
             self.tabs = [homeTab, meTab, searchTab]
             if traitCollection.userInterfaceIdiom == .pad {
                 self.mode = .tabBar
             }
         } else {
-            viewControllers = [homeRoot, meNav, searchNav]
+            viewControllers = [homeRoot, meRoot, searchNav]
         }
     }
 
@@ -67,6 +75,7 @@ final class ForumTabBarController: UITabBarController, UITabBarControllerDelegat
     func syncTabBarVisibility(
         homeShowingDetail: Bool? = nil,
         showing viewController: UIViewController? = nil,
+        adaptiveShowingDetail: Bool? = nil,
         animated: Bool = false,
         force: Bool = false
     ) {
@@ -74,6 +83,11 @@ final class ForumTabBarController: UITabBarController, UITabBarControllerDelegat
         let shouldHide: Bool
         if let home = homeSplitViewController, selectedViewController === home {
             shouldHide = homeShowingDetail ?? home.hasPushedHomePage
+        } else if let split = selectedViewController as? AdaptiveNavigationSplitViewController {
+            let visibleController = viewController ?? split.visibleViewController
+            shouldHide = split.isSinglePanePresentation
+                && (adaptiveShowingDetail ?? split.showsDetail)
+                && visibleController.hidesBottomBarWhenPushed
         } else if let navigation = selectedViewController as? UINavigationController {
             let visibleController = viewController ?? navigation.topViewController
             shouldHide = visibleController !== navigation.viewControllers.first

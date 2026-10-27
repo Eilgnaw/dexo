@@ -448,7 +448,7 @@ final class MeViewController: ObservableViewController {
         case .login, .logout:
             return
         }
-        navigationController?.pushViewController(destination, animated: true)
+        pushViewControllerAdaptively(destination, animated: true)
     }
 
     private func logoutTapped() {
@@ -468,9 +468,15 @@ final class MeViewController: ObservableViewController {
         guard let username = viewModel.currentUser?.username else { return }
         switch stat {
         case .topics:
-            navigationController?.pushViewController(UserPostsViewController(api: api, username: username, filter: .topics), animated: true)
+            pushViewControllerAdaptively(
+                UserPostsViewController(api: api, username: username, filter: .topics),
+                animated: true
+            )
         case .posts:
-            navigationController?.pushViewController(UserPostsViewController(api: api, username: username, filter: .posts), animated: true)
+            pushViewControllerAdaptively(
+                UserPostsViewController(api: api, username: username, filter: .posts),
+                animated: true
+            )
         case .likes, .days:
             break
         }

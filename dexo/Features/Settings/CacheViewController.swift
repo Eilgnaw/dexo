@@ -56,6 +56,8 @@ final class CacheViewController: BaseViewController {
         return label
     }()
 
+    private let contentLayoutGuide = UILayoutGuide()
+
     // MARK: - State
 
     private struct CacheRow {
@@ -95,9 +97,16 @@ final class CacheViewController: BaseViewController {
         view.addSubview(tableView)
 
         let ringSize: CGFloat = 160
+        let safeArea = view.safeAreaLayoutGuide
+        view.addLayoutGuide(contentLayoutGuide)
         NSLayoutConstraint.activate([
-            ringContainer.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 40),
-            ringContainer.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            contentLayoutGuide.topAnchor.constraint(equalTo: safeArea.topAnchor),
+            contentLayoutGuide.leadingAnchor.constraint(equalTo: safeArea.leadingAnchor),
+            contentLayoutGuide.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            contentLayoutGuide.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+
+            ringContainer.topAnchor.constraint(equalTo: contentLayoutGuide.topAnchor, constant: 40),
+            ringContainer.centerXAnchor.constraint(equalTo: safeArea.centerXAnchor),
             ringContainer.widthAnchor.constraint(equalToConstant: ringSize),
             ringContainer.heightAnchor.constraint(equalToConstant: ringSize),
 
@@ -108,12 +117,12 @@ final class CacheViewController: BaseViewController {
             unitLabel.centerXAnchor.constraint(equalTo: ringContainer.centerXAnchor),
 
             countLabel.topAnchor.constraint(equalTo: ringContainer.bottomAnchor, constant: 12),
-            countLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            countLabel.centerXAnchor.constraint(equalTo: safeArea.centerXAnchor),
 
             tableView.topAnchor.constraint(equalTo: countLabel.bottomAnchor, constant: 20),
-            tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            tableView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            tableView.leadingAnchor.constraint(equalTo: contentLayoutGuide.leadingAnchor),
+            tableView.trailingAnchor.constraint(equalTo: contentLayoutGuide.trailingAnchor),
+            tableView.bottomAnchor.constraint(equalTo: contentLayoutGuide.bottomAnchor),
         ])
 
         ringContainer.layer.addSublayer(ringLayer)

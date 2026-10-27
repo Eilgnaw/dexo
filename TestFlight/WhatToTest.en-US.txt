@@ -1,3 +1,5 @@
-On an iPad or unfolded foldable in a wide layout, open a forum, minimize it, and then open a different forum.
-After switching, the category sidebar, navigation controls, and Home, Me, and Search tabs should all remain visible immediately without sending the app to the background.
-Repeat the switch several times, then fold the device or narrow the window and confirm the compact navigation and tab bar still work normally.
+On iPhone Duo, open App Settings while folded, then open Font Size, Clear Cache, or Feedback and move between folded, half-open, and fully open states.
+In a wide layout, Settings should remain on the left and the selected page should appear on the right. With no page selected, the centered Dexo watermark should appear instead.
+Fold the device again and confirm navigation returns to the correct parent page, remains usable, and does not crash.
+Repeat from a forum's Me tab and open one of its pages. Confirm the root and detail pages move between columns correctly as the device posture changes.
+Check that Font Size and Feedback content stays clear of the hinge and safe areas, and that the Clear Cache ring and empty states remain centered without visible clipping.

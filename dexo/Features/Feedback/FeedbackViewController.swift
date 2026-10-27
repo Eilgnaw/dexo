@@ -58,6 +58,7 @@ final class FeedbackViewController: BaseViewController {
 
     private var webView: WKWebView?
     private var progressObservation: NSKeyValueObservation?
+    private let contentLayoutGuide = UILayoutGuide()
 
     private let progressView: UIProgressView = {
         let progressView = UIProgressView(progressViewStyle: .bar)
@@ -119,14 +120,21 @@ final class FeedbackViewController: BaseViewController {
 
         view.addSubview(errorStack)
         view.addSubview(progressView)
+        let safeArea = view.safeAreaLayoutGuide
+        view.addLayoutGuide(contentLayoutGuide)
         NSLayoutConstraint.activate([
-            progressView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
-            progressView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            contentLayoutGuide.topAnchor.constraint(equalTo: safeArea.topAnchor),
+            contentLayoutGuide.leadingAnchor.constraint(equalTo: safeArea.leadingAnchor),
+            contentLayoutGuide.trailingAnchor.constraint(equalTo: safeArea.trailingAnchor),
+            contentLayoutGuide.bottomAnchor.constraint(equalTo: safeArea.bottomAnchor),
+
+            progressView.topAnchor.constraint(equalTo: contentLayoutGuide.topAnchor),
+            progressView.leadingAnchor.constraint(equalTo: contentLayoutGuide.leadingAnchor),
             progressView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            errorStack.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            errorStack.centerYAnchor.constraint(equalTo: view.centerYAnchor),
-            errorStack.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor, constant: 32),
-            errorStack.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -32),
+            errorStack.centerXAnchor.constraint(equalTo: contentLayoutGuide.centerXAnchor),
+            errorStack.centerYAnchor.constraint(equalTo: contentLayoutGuide.centerYAnchor),
+            errorStack.leadingAnchor.constraint(greaterThanOrEqualTo: contentLayoutGuide.leadingAnchor, constant: 32),
+            errorStack.trailingAnchor.constraint(lessThanOrEqualTo: contentLayoutGuide.trailingAnchor, constant: -32),
             retryButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 120),
             retryButton.heightAnchor.constraint(greaterThanOrEqualToConstant: 46),
         ])
@@ -148,6 +156,11 @@ final class FeedbackViewController: BaseViewController {
         super.traitCollectionDidChange(previousTraitCollection)
         guard previousTraitCollection?.userInterfaceStyle != traitCollection.userInterfaceStyle else { return }
         applyThemeBackground()
+    }
+
+    override func viewSafeAreaInsetsDidChange() {
+        super.viewSafeAreaInsetsDidChange()
+        updateWebViewInsets()
     }
 
     override func applyThemeBackground() {
@@ -190,19 +203,27 @@ final class FeedbackViewController: BaseViewController {
                 forMainFrameOnly: true
             )
         )
+        configuration.userContentController.addUserScript(
+            WKUserScript(
+                source: makeWebSafeAreaJavaScript(),
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: true
+            )
+        )
 
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.translatesAutoresizingMaskIntoConstraints = false
         webView.navigationDelegate = self
         webView.uiDelegate = self
         webView.isOpaque = false
+        webView.scrollView.contentInsetAdjustmentBehavior = .never
         self.webView?.removeFromSuperview()
         self.webView = webView
 
         view.insertSubview(webView, belowSubview: progressView)
         NSLayoutConstraint.activate([
-            webView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
-            webView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            webView.topAnchor.constraint(equalTo: contentLayoutGuide.topAnchor),
+            webView.leadingAnchor.constraint(equalTo: contentLayoutGuide.leadingAnchor),
             webView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             webView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
@@ -212,7 +233,39 @@ final class FeedbackViewController: BaseViewController {
             self?.progressView.isHidden = webView.estimatedProgress >= 1
         }
         applyThemeBackground()
+        updateWebViewInsets()
         loadTarget(in: webView)
+    }
+
+    private func updateWebViewInsets() {
+        guard let scrollView = webView?.scrollView else { return }
+        let insets = UIEdgeInsets(
+            top: 0,
+            left: 0,
+            bottom: view.safeAreaInsets.bottom,
+            right: view.safeAreaInsets.right
+        )
+        scrollView.contentInset = insets
+        scrollView.scrollIndicatorInsets = insets
+        webView?.evaluateJavaScript(makeWebSafeAreaJavaScript())
+    }
+
+    private func makeWebSafeAreaJavaScript() -> String {
+        let rightInset = max(0, view.safeAreaInsets.right)
+        return """
+        (function() {
+          var root = document.documentElement;
+          if (!root) { return; }
+          var style = document.getElementById('dexo-feedback-safe-area');
+          if (!style) {
+            style = document.createElement('style');
+            style.id = 'dexo-feedback-safe-area';
+            root.appendChild(style);
+          }
+          style.textContent = 'body{box-sizing:border-box!important;padding-right:\(rightInset)px!important;}'
+            + 'body .fixed[class*="bottom-"]{right:\(rightInset)px!important;}';
+        })();
+        """
     }
 
     private func loadTarget(in webView: WKWebView) {
@@ -318,6 +371,7 @@ extension FeedbackViewController: WKNavigationDelegate, WKUIDelegate {
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         webView.evaluateJavaScript(makeWebThemePalette().javaScript)
+        webView.evaluateJavaScript(makeWebSafeAreaJavaScript())
         hideError()
     }
 

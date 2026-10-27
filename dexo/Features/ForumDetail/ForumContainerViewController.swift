@@ -295,6 +295,11 @@ final class ForumContainerViewController: BaseViewController, AuthGating {
                 let intersection = safeBounds.intersection(paneBounds)
                 if !intersection.isNull { horizontalBounds = intersection }
                 top = max(top, split.activeNavigationBarFrame(in: view).maxY)
+            } else if let split = tabBarController.selectedViewController as? AdaptiveNavigationSplitViewController {
+                let paneBounds = split.activePaneFrame(in: view)
+                let intersection = safeBounds.intersection(paneBounds)
+                if !intersection.isNull { horizontalBounds = intersection }
+                top = max(top, split.activeNavigationBarFrame(in: view).maxY)
             }
             let tabBarFrame = tabBarController.tabBar.convert(
                 tabBarController.tabBar.bounds,
@@ -506,6 +511,7 @@ final class ForumContainerViewController: BaseViewController, AuthGating {
         }
         tabBarVC.onSelectionChanged = updateIndicatorPlacement
         tabBarVC.homeSplitViewController?.onPaneLayout = updateIndicatorPlacement
+        tabBarVC.meSplitViewController?.onPaneLayout = updateIndicatorPlacement
 
         tabBarVC.didMove(toParent: self)
 
@@ -570,6 +576,10 @@ final class ForumContainerViewController: BaseViewController, AuthGating {
 
             if i == 0, let homeSplit = tabBarVC.homeSplitViewController {
                 homeSplit.setHomeRightBarButtonItems(rightItems)
+                continue
+            }
+            if i == 1, let meSplit = tabBarVC.meSplitViewController {
+                meSplit.setRootRightBarButtonItems(rightItems)
                 continue
             }
             guard let rootVC = nav.viewControllers.first else { continue }

@@ -71,10 +71,11 @@ final class WebViewProxyTestViewController: BaseViewController {
         view.addSubview(progressView)
         view.addSubview(loadingIndicator)
 
+        let safeArea = view.safeAreaLayoutGuide
         NSLayoutConstraint.activate([
-            addressBar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
-            addressBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            addressBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            addressBar.topAnchor.constraint(equalTo: safeArea.topAnchor),
+            addressBar.leadingAnchor.constraint(equalTo: safeArea.leadingAnchor),
+            addressBar.trailingAnchor.constraint(equalTo: safeArea.trailingAnchor),
 
             addressField.topAnchor.constraint(equalTo: addressBar.topAnchor, constant: 8),
             addressField.bottomAnchor.constraint(equalTo: addressBar.bottomAnchor, constant: -8),
@@ -85,11 +86,11 @@ final class WebViewProxyTestViewController: BaseViewController {
             openButton.centerYAnchor.constraint(equalTo: addressField.centerYAnchor),
 
             progressView.topAnchor.constraint(equalTo: addressBar.bottomAnchor),
-            progressView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            progressView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            progressView.leadingAnchor.constraint(equalTo: safeArea.leadingAnchor),
+            progressView.trailingAnchor.constraint(equalTo: safeArea.trailingAnchor),
 
-            loadingIndicator.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            loadingIndicator.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            loadingIndicator.centerXAnchor.constraint(equalTo: safeArea.centerXAnchor),
+            loadingIndicator.centerYAnchor.constraint(equalTo: safeArea.centerYAnchor),
         ])
 
         loadingIndicator.startAnimating()
@@ -147,7 +148,7 @@ final class WebViewProxyTestViewController: BaseViewController {
             view.insertSubview(webView, belowSubview: loadingIndicator)
             NSLayoutConstraint.activate([
                 webView.topAnchor.constraint(equalTo: progressView.bottomAnchor),
-                webView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+                webView.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor),
                 webView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
                 webView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
             ])
