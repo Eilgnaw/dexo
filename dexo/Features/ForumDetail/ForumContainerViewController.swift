@@ -17,6 +17,7 @@ final class ForumContainerViewController: BaseViewController, AuthGating {
     private let authManager = AuthManager.shared
     private var notificationPoller: NotificationPoller?
     private var hasPendingPostLoginPushPrompt = false
+    private var hasPendingPostLoginReviewRequest = false
     private var pendingPushRegistrationError: Error?
     private var isRegisteringPush = false
     private var pendingPushDestination: PendingPushDestination?
@@ -268,7 +269,11 @@ final class ForumContainerViewController: BaseViewController, AuthGating {
             return
         }
 
-        presentPostLoginPushPromptIfNeeded()
+        // Keep the review request behind the complete push flow. If the user
+        // enables notifications, `isRegisteringPush` also holds this queue
+        // until the system permission sheet and registration have finished.
+        if presentPostLoginPushPromptIfNeeded() { return }
+        requestPostLoginReviewIfNeeded()
     }
 
     private func setupCloudflareChallengeIndicator() {
@@ -324,20 +329,21 @@ final class ForumContainerViewController: BaseViewController, AuthGating {
         challengeIndicatorHost.updatePlacement(in: availableBounds)
     }
 
-    private func presentPostLoginPushPromptIfNeeded() {
-        guard hasPendingPostLoginPushPrompt else { return }
+    @discardableResult
+    private func presentPostLoginPushPromptIfNeeded() -> Bool {
+        guard hasPendingPostLoginPushPrompt else { return false }
         guard isAuthenticated(),
               let username = currentUsername() ?? forum.username,
               !username.isEmpty
         else {
             hasPendingPostLoginPushPrompt = false
-            return
+            return false
         }
 
         let coordinator = PushSubscriptionCoordinator(api: api)
         guard !coordinator.isEnabled(username: username) else {
             hasPendingPostLoginPushPrompt = false
-            return
+            return false
         }
 
         hasPendingPostLoginPushPrompt = false
@@ -359,6 +365,13 @@ final class ForumContainerViewController: BaseViewController, AuthGating {
             self?.enablePushAfterLogin(username: username)
         })
         present(alert, animated: true)
+        return true
+    }
+
+    private func requestPostLoginReviewIfNeeded() {
+        guard hasPendingPostLoginReviewRequest else { return }
+        hasPendingPostLoginReviewRequest = false
+        AppReviewRequestCoordinator.shared.requestAfterLogin()
     }
 
     private func schedulePendingAlertPresentation() {
@@ -655,6 +668,7 @@ final class ForumContainerViewController: BaseViewController, AuthGating {
 
     private func finishLogout() {
         hasPendingPostLoginPushPrompt = false
+        hasPendingPostLoginReviewRequest = false
         pendingPushRegistrationError = nil
         authManager.logout(forum: forum)
         refreshForumFromDatabase()
@@ -671,14 +685,13 @@ final class ForumContainerViewController: BaseViewController, AuthGating {
     private func completeSuccessfulLogin(then action: (() -> Void)? = nil) {
         refreshForumFromDatabase()
         action?()
+        hasPendingPostLoginReviewRequest = true
 
-        guard let username = currentUsername() ?? forum.username,
-              !username.isEmpty
-        else { return }
-
-        let coordinator = PushSubscriptionCoordinator(api: api)
-        guard !coordinator.isEnabled(username: username) else { return }
-        hasPendingPostLoginPushPrompt = true
+        if let username = currentUsername() ?? forum.username,
+           !username.isEmpty {
+            let coordinator = PushSubscriptionCoordinator(api: api)
+            hasPendingPostLoginPushPrompt = !coordinator.isEnabled(username: username)
+        }
         schedulePendingAlertPresentation()
     }
 

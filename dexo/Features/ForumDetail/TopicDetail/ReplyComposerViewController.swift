@@ -513,6 +513,7 @@ final class ReplyComposerViewController: BaseViewController {
                 let newPostId = response.id
                 let newPostNumber = response.postNumber ?? 0
                 dismiss(animated: true) { [weak self] in
+                    AppReviewRequestCoordinator.shared.requestAfterPublishedReply()
                     self?.onPostCreated?(newPostId, newPostNumber)
                 }
             } catch {

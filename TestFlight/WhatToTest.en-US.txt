@@ -4,3 +4,5 @@ Fold the device again and confirm navigation returns to the correct parent page,
 Repeat from a forum's Me tab and open one of its pages. Confirm the root and detail pages move between columns correctly as the device posture changes.
 Check that Font Size and Feedback content stays clear of the hinge and safe areas, and that the Clear Cache ring and empty states remain centered without visible clipping.
 On Clear Cache, swipe vertically and confirm the ring, image count, cache categories, and Clear All action scroll together.
+After signing in, publishing a reply, or successfully liking a post, the system may show the App Store rating prompt.
+After signing in, confirm any push notification prompt finishes before the rating prompt appears, with no overlapping dialogs.

@@ -4,13 +4,9 @@ import XCTest
 
 @MainActor
 final class AppReviewRequestCoordinatorTests: XCTestCase {
-    func testSuccessfulLikeRequestsReviewOnlyOnceForVersion() throws {
-        let (defaults, suiteName) = try makeDefaults()
-        defer { defaults.removePersistentDomain(forName: suiteName) }
+    func testSuccessfulLikesAlwaysForwardReviewRequestToSystem() {
         var requestCount = 0
         let coordinator = AppReviewRequestCoordinator(
-            defaults: defaults,
-            marketingVersion: { "1.2.3" },
             requestReview: {
                 requestCount += 1
                 return true
@@ -18,17 +14,13 @@ final class AppReviewRequestCoordinatorTests: XCTestCase {
         )
 
         XCTAssertTrue(coordinator.requestAfterLikeChange(liked: true))
-        XCTAssertFalse(coordinator.requestAfterLikeChange(liked: true))
-        XCTAssertEqual(requestCount, 1)
+        XCTAssertTrue(coordinator.requestAfterLikeChange(liked: true))
+        XCTAssertEqual(requestCount, 2)
     }
 
-    func testUnlikeDoesNotRequestReview() throws {
-        let (defaults, suiteName) = try makeDefaults()
-        defer { defaults.removePersistentDomain(forName: suiteName) }
+    func testUnlikeDoesNotRequestReview() {
         var requestCount = 0
         let coordinator = AppReviewRequestCoordinator(
-            defaults: defaults,
-            marketingVersion: { "1.2.3" },
             requestReview: {
                 requestCount += 1
                 return true
@@ -39,82 +31,27 @@ final class AppReviewRequestCoordinatorTests: XCTestCase {
         XCTAssertEqual(requestCount, 0)
     }
 
-    func testMissingForegroundSceneDoesNotConsumeEligibility() throws {
-        let (defaults, suiteName) = try makeDefaults()
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-        let unavailableCoordinator = AppReviewRequestCoordinator(
-            defaults: defaults,
-            marketingVersion: { "1.2.3" },
-            requestReview: { false }
-        )
-
-        XCTAssertFalse(unavailableCoordinator.requestAfterLikeChange(liked: true))
-
+    func testPublishedReplyAndLoginAlwaysForwardReviewRequestsToSystem() {
         var requestCount = 0
-        let availableCoordinator = AppReviewRequestCoordinator(
-            defaults: defaults,
-            marketingVersion: { "1.2.3" },
+        let coordinator = AppReviewRequestCoordinator(
             requestReview: {
                 requestCount += 1
                 return true
             }
         )
-        XCTAssertTrue(availableCoordinator.requestAfterLikeChange(liked: true))
-        XCTAssertEqual(requestCount, 1)
+
+        XCTAssertTrue(coordinator.requestAfterPublishedReply())
+        XCTAssertTrue(coordinator.requestAfterLogin())
+        XCTAssertTrue(coordinator.requestAfterPublishedReply())
+        XCTAssertTrue(coordinator.requestAfterLogin())
+        XCTAssertEqual(requestCount, 4)
     }
 
-    func testNewMarketingVersionCanRequestAgain() throws {
-        let (defaults, suiteName) = try makeDefaults()
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-        var requestCount = 0
-        let requester = {
-            requestCount += 1
-            return true
-        }
+    func testUnavailableSystemReviewRequestReturnsFalse() {
+        let coordinator = AppReviewRequestCoordinator(requestReview: { false })
 
-        let firstVersion = AppReviewRequestCoordinator(
-            defaults: defaults,
-            marketingVersion: { "1.2.3" },
-            requestReview: requester
-        )
-        let nextVersion = AppReviewRequestCoordinator(
-            defaults: defaults,
-            marketingVersion: { "1.2.4" },
-            requestReview: requester
-        )
-
-        XCTAssertTrue(firstVersion.requestAfterLikeChange(liked: true))
-        XCTAssertTrue(nextVersion.requestAfterLikeChange(liked: true))
-        XCTAssertEqual(requestCount, 2)
-    }
-
-    func testRequestedVersionPersistsAcrossCoordinatorInstances() throws {
-        let (defaults, suiteName) = try makeDefaults()
-        defer { defaults.removePersistentDomain(forName: suiteName) }
-        var requestCount = 0
-        let requester = {
-            requestCount += 1
-            return true
-        }
-
-        let first = AppReviewRequestCoordinator(
-            defaults: defaults,
-            marketingVersion: { "1.2.3" },
-            requestReview: requester
-        )
-        XCTAssertTrue(first.requestAfterLikeChange(liked: true))
-
-        let restored = AppReviewRequestCoordinator(
-            defaults: defaults,
-            marketingVersion: { "1.2.3" },
-            requestReview: requester
-        )
-        XCTAssertFalse(restored.requestAfterLikeChange(liked: true))
-        XCTAssertEqual(requestCount, 1)
-    }
-
-    private func makeDefaults() throws -> (UserDefaults, String) {
-        let suiteName = "dexo-app-review-\(UUID().uuidString)"
-        return (try XCTUnwrap(UserDefaults(suiteName: suiteName)), suiteName)
+        XCTAssertFalse(coordinator.requestAfterLikeChange(liked: true))
+        XCTAssertFalse(coordinator.requestAfterPublishedReply())
+        XCTAssertFalse(coordinator.requestAfterLogin())
     }
 }
