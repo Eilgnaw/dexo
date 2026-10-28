@@ -217,6 +217,15 @@ final class ThemeManager {
         }
     }
 
+    /// Neutral gray used by the empty detail-column watermark.
+    var splitPlaceholderWatermarkColor: UIColor {
+        UIColor { traits in
+            traits.userInterfaceStyle == .dark
+                ? UIColor(white: 0.62, alpha: 1)
+                : UIColor(white: 0.48, alpha: 1)
+        }
+    }
+
     /// Page background (replaces systemGroupedBackground)
     var backgroundColor: UIColor {
         _ = revision

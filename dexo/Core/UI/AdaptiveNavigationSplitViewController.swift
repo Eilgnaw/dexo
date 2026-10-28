@@ -274,43 +274,18 @@ private final class AdaptiveSplitPlaceholderViewController: BaseViewController {
 }
 
 private final class AdaptiveSplitPlaceholderView: UIView {
-    private let watermarkView = UIView()
-    private let shadowImageView = AdaptiveSplitPlaceholderView.makeImageView()
-    private let highlightImageView = AdaptiveSplitPlaceholderView.makeImageView()
     private let imageView = AdaptiveSplitPlaceholderView.makeImageView()
-    private var watermarkCenterX: NSLayoutConstraint!
-    private var watermarkCenterY: NSLayoutConstraint!
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        watermarkView.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(watermarkView)
-        for imageView in [shadowImageView, highlightImageView, imageView] {
-            imageView.translatesAutoresizingMaskIntoConstraints = false
-            watermarkView.addSubview(imageView)
-        }
-        watermarkCenterX = watermarkView.centerXAnchor.constraint(equalTo: centerXAnchor)
-        watermarkCenterY = watermarkView.centerYAnchor.constraint(equalTo: centerYAnchor)
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(imageView)
+        let safeArea = safeAreaLayoutGuide
         NSLayoutConstraint.activate([
-            watermarkView.widthAnchor.constraint(equalToConstant: 132),
-            watermarkView.heightAnchor.constraint(equalToConstant: 132),
-            watermarkCenterX,
-            watermarkCenterY,
-
-            shadowImageView.widthAnchor.constraint(equalTo: watermarkView.widthAnchor),
-            shadowImageView.heightAnchor.constraint(equalTo: watermarkView.heightAnchor),
-            shadowImageView.centerXAnchor.constraint(equalTo: watermarkView.centerXAnchor, constant: 2),
-            shadowImageView.centerYAnchor.constraint(equalTo: watermarkView.centerYAnchor, constant: 2),
-
-            highlightImageView.widthAnchor.constraint(equalTo: watermarkView.widthAnchor),
-            highlightImageView.heightAnchor.constraint(equalTo: watermarkView.heightAnchor),
-            highlightImageView.centerXAnchor.constraint(equalTo: watermarkView.centerXAnchor, constant: -1.5),
-            highlightImageView.centerYAnchor.constraint(equalTo: watermarkView.centerYAnchor, constant: -1.5),
-
-            imageView.widthAnchor.constraint(equalTo: watermarkView.widthAnchor),
-            imageView.heightAnchor.constraint(equalTo: watermarkView.heightAnchor),
-            imageView.centerXAnchor.constraint(equalTo: watermarkView.centerXAnchor),
-            imageView.centerYAnchor.constraint(equalTo: watermarkView.centerYAnchor),
+            imageView.widthAnchor.constraint(equalToConstant: 132),
+            imageView.heightAnchor.constraint(equalToConstant: 132),
+            imageView.centerXAnchor.constraint(equalTo: safeArea.centerXAnchor),
+            imageView.centerYAnchor.constraint(equalTo: safeArea.centerYAnchor),
         ])
         updateTheme()
     }
@@ -320,36 +295,8 @@ private final class AdaptiveSplitPlaceholderView: UIView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    override func updateConstraints() {
-        // UIKit tracks reserved regions read during constraint updates and
-        // invalidates this layout when the fold becomes active or inactive.
-        updateWatermarkPosition()
-        super.updateConstraints()
-    }
-
-    private func updateWatermarkPosition() {
-        var target = CGPoint(x: bounds.midX, y: bounds.midY)
-        if #available(iOS 27.1, *),
-           let division = reservedRegions(kind: .division, options: .includeInactive).first
-        {
-            let frame = division.frame
-            if frame.height >= frame.width {
-                target.x = (frame.maxX + bounds.maxX) / 2
-            } else {
-                target.y = (frame.maxY + bounds.maxY) / 2
-            }
-        }
-        watermarkCenterX.constant = target.x - bounds.midX
-        watermarkCenterY.constant = target.y - bounds.midY
-    }
-
     func updateTheme() {
-        shadowImageView.tintColor = .label
-        shadowImageView.alpha = 0.12
-        highlightImageView.tintColor = ThemeManager.shared.backgroundColor
-        highlightImageView.alpha = 0.55
-        imageView.tintColor = .systemGray
-        imageView.alpha = 0.72
+        imageView.tintColor = ThemeManager.shared.splitPlaceholderWatermarkColor
     }
 
     private static func makeImageView() -> UIImageView {

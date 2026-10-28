@@ -1,5 +1,6 @@
 On iPhone Duo, open App Settings while folded, then open Font Size, Clear Cache, or Feedback and move between folded, half-open, and fully open states.
-In a wide layout, Settings should remain on the left and the selected page should appear on the right. With no page selected, the centered Dexo watermark should appear instead.
+In a wide layout, Settings should remain on the left and the selected page should appear on the right. With no page selected, a centered, flat gray Dexo watermark should appear instead.
 Fold the device again and confirm navigation returns to the correct parent page, remains usable, and does not crash.
 Repeat from a forum's Me tab and open one of its pages. Confirm the root and detail pages move between columns correctly as the device posture changes.
 Check that Font Size and Feedback content stays clear of the hinge and safe areas, and that the Clear Cache ring and empty states remain centered without visible clipping.
+On Clear Cache, swipe vertically and confirm the ring, image count, cache categories, and Clear All action scroll together.

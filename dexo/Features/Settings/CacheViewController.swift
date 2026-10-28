@@ -11,8 +11,15 @@ final class CacheViewController: BaseViewController {
         tv.translatesAutoresizingMaskIntoConstraints = false
         tv.dataSource = self
         tv.delegate = self
-        tv.isScrollEnabled = false
+        tv.isScrollEnabled = true
+        tv.alwaysBounceVertical = true
         return tv
+    }()
+
+    private static let tableHeaderHeight: CGFloat = 252
+
+    private let tableHeaderView: UIView = {
+        UIView(frame: CGRect(x: 0, y: 0, width: 0, height: CacheViewController.tableHeaderHeight))
     }()
 
     /// Circular progress ring that animates while calculating cache size.
@@ -90,10 +97,11 @@ final class CacheViewController: BaseViewController {
             CacheRow(titleKey: "cache.other", cache: nil),
         ]
 
-        view.addSubview(ringContainer)
+        tableHeaderView.addSubview(ringContainer)
         ringContainer.addSubview(sizeLabel)
         ringContainer.addSubview(unitLabel)
-        view.addSubview(countLabel)
+        tableHeaderView.addSubview(countLabel)
+        tableView.tableHeaderView = tableHeaderView
         view.addSubview(tableView)
 
         let ringSize: CGFloat = 160
@@ -105,7 +113,7 @@ final class CacheViewController: BaseViewController {
             contentLayoutGuide.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             contentLayoutGuide.bottomAnchor.constraint(equalTo: view.bottomAnchor),
 
-            ringContainer.topAnchor.constraint(equalTo: contentLayoutGuide.topAnchor, constant: 40),
+            ringContainer.topAnchor.constraint(equalTo: tableHeaderView.topAnchor, constant: 40),
             ringContainer.centerXAnchor.constraint(equalTo: safeArea.centerXAnchor),
             ringContainer.widthAnchor.constraint(equalToConstant: ringSize),
             ringContainer.heightAnchor.constraint(equalToConstant: ringSize),
@@ -118,8 +126,10 @@ final class CacheViewController: BaseViewController {
 
             countLabel.topAnchor.constraint(equalTo: ringContainer.bottomAnchor, constant: 12),
             countLabel.centerXAnchor.constraint(equalTo: safeArea.centerXAnchor),
+            countLabel.leadingAnchor.constraint(greaterThanOrEqualTo: tableHeaderView.leadingAnchor, constant: 20),
+            countLabel.trailingAnchor.constraint(lessThanOrEqualTo: tableHeaderView.trailingAnchor, constant: -20),
 
-            tableView.topAnchor.constraint(equalTo: countLabel.bottomAnchor, constant: 20),
+            tableView.topAnchor.constraint(equalTo: contentLayoutGuide.topAnchor),
             tableView.leadingAnchor.constraint(equalTo: contentLayoutGuide.leadingAnchor),
             tableView.trailingAnchor.constraint(equalTo: contentLayoutGuide.trailingAnchor),
             tableView.bottomAnchor.constraint(equalTo: contentLayoutGuide.bottomAnchor),
@@ -136,6 +146,11 @@ final class CacheViewController: BaseViewController {
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        let headerWidth = tableView.bounds.width
+        if headerWidth > 0, tableHeaderView.bounds.width != headerWidth {
+            tableHeaderView.frame.size = CGSize(width: headerWidth, height: Self.tableHeaderHeight)
+            tableView.tableHeaderView = tableHeaderView
+        }
         let bounds = ringContainer.bounds
         let center = CGPoint(x: bounds.midX, y: bounds.midY)
         let radius = min(bounds.width, bounds.height) / 2 - ringLayer.lineWidth / 2
